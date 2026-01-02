@@ -15,6 +15,14 @@ from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+# Try to import ability lookup for name resolution
+try:
+    from ability_lookup import AbilityLookup
+    ABILITY_LOOKUP_AVAILABLE = True
+except ImportError:
+    ABILITY_LOOKUP_AVAILABLE = False
+    AbilityLookup = None
+
 # Frame values appear to be in milliseconds based on analysis
 # (not game ticks - typical game is 10-30 mins, not 3+ hours)
 FRAME_UNIT_MS = True  # Frame values are milliseconds
@@ -118,6 +126,48 @@ def find_all_strings(obj, depth=0):
                     results.extend(find_all_strings(item, depth+1))
     return results
 
+
+def simplify_protobuf(obj, depth=0):
+    """Convert parsed protobuf structure to a simpler JSON-friendly format."""
+    if depth > 20:
+        return None
+    if isinstance(obj, dict):
+        if 't' in obj:
+            # This is a typed value
+            t = obj['t']
+            if t == 'v':
+                return obj['v']
+            elif t == 's':
+                return obj['v']
+            elif t == 'm':
+                return simplify_protobuf(obj['v'], depth + 1)
+            elif t == 'b':
+                return {'_bytes': obj.get('len', 0)}
+            elif t == 'f32':
+                return {'_f32': obj.get('f'), '_i32': obj.get('i')}
+            elif t == 'f64':
+                return {'_f64': obj.get('d'), '_i64': obj.get('i')}
+            else:
+                return obj
+        else:
+            # This is a field dict
+            result = {}
+            for k, v in obj.items():
+                if isinstance(v, list):
+                    simplified = [simplify_protobuf(item, depth + 1) for item in v]
+                    # If single item, unwrap
+                    if len(simplified) == 1:
+                        result[str(k)] = simplified[0]
+                    else:
+                        result[str(k)] = simplified
+                else:
+                    result[str(k)] = simplify_protobuf(v, depth + 1)
+            return result
+    elif isinstance(obj, list):
+        return [simplify_protobuf(item, depth + 1) for item in obj]
+    else:
+        return obj
+
 def frame_to_time(frame: int) -> str:
     """Convert frame number to mm:ss format"""
     if frame is None:
@@ -134,8 +184,173 @@ def frame_to_seconds(frame: int) -> float:
         return 0
     return frame / 1000
 
+
+class EntityTracker:
+    """Tracks entities (units/buildings) by their target_id throughout a game."""
+
+    def __init__(self, ability_lookup=None):
+        self.entities = {}  # target_id -> entity info
+        self.ability_lookup = ability_lookup
+
+    def _get_ability_name(self, ability_id):
+        """Get ability name from lookup."""
+        if self.ability_lookup and ability_id:
+            name, _ = self.ability_lookup.get_full(ability_id)
+            if name != str(ability_id):
+                return name
+        return None
+
+    def record_action(self, action: dict):
+        """Record an action involving an entity."""
+        target_id = action.get('target_id')
+        if not target_id:
+            return
+
+        if target_id not in self.entities:
+            self.entities[target_id] = {
+                'id': target_id,
+                'first_seen': action.get('frame'),
+                'first_seen_time': action.get('time'),
+                'last_seen': action.get('frame'),
+                'last_seen_time': action.get('time'),
+                'players': set(),
+                'abilities_used': Counter(),  # abilities used ON this entity
+                'abilities_cast': Counter(),  # abilities cast BY this entity
+                'target_types': Counter(),
+                'action_count': 0,
+                'inferred_type': None,
+                'inferred_owner': None,
+            }
+
+        entity = self.entities[target_id]
+        entity['last_seen'] = action.get('frame')
+        entity['last_seen_time'] = action.get('time')
+        entity['action_count'] += 1
+
+        player_id = action.get('player_id')
+        if player_id:
+            entity['players'].add(player_id)
+
+        # Track target_type (ability used on this entity)
+        target_type = action.get('target_type')
+        if target_type:
+            name = action.get('target_type_name') or self._get_ability_name(target_type) or str(target_type)
+            entity['target_types'][name] += 1
+            entity['abilities_used'][name] += 1
+
+        # Track ability_id (ability cast, possibly by this entity)
+        ability_id = action.get('ability_id')
+        if ability_id:
+            name = action.get('ability_name') or self._get_ability_name(ability_id) or str(ability_id)
+            entity['abilities_cast'][name] += 1
+
+        # Try to infer entity type from abilities
+        self._infer_type(entity)
+
+    def _infer_type(self, entity: dict):
+        """Infer what type of entity this is based on abilities used."""
+        # Look for spawn abilities which indicate building type
+        spawn_indicators = {
+            'HQSpawn': 'HQ',
+            'Shrine_Spawn': 'Shrine',
+            'BarracksSpawn': 'Barracks',
+            'IronVault_Spawn': 'IronVault',
+            'CreationChamber_Spawn': 'CreationChamber',
+            'Arcship_Spawn': 'Arcship',
+            'Conclave_Spawn': 'Conclave',
+        }
+
+        morph_indicators = {
+            'ArcshipTier1Land': 'Arcship',
+            'ArcshipTier1Liftoff': 'Arcship',
+            'MorphToArcshipTier2': 'Arcship',
+            'MorphToArcshipTier3': 'Arcship',
+            'MorphToHQTier2': 'HQ',
+            'MorphToGreaterShrine': 'Shrine',
+        }
+
+        construct_indicators = {
+            'WorkerConstructAbilityData': 'Worker',
+            'Imp_Construct': 'Imp',
+            'Celestial_Construct': 'Celestial',
+        }
+
+        # Check abilities used on this entity
+        for ability, count in entity['abilities_used'].items():
+            if ability in spawn_indicators:
+                entity['inferred_type'] = spawn_indicators[ability]
+                return
+            if ability in morph_indicators:
+                entity['inferred_type'] = morph_indicators[ability]
+                return
+
+        # Check abilities cast by this entity
+        for ability, count in entity['abilities_cast'].items():
+            if ability in spawn_indicators:
+                entity['inferred_type'] = spawn_indicators[ability]
+                return
+            if ability in construct_indicators:
+                entity['inferred_type'] = construct_indicators[ability]
+                return
+
+        # If mostly attack actions, probably a combat unit
+        if entity['abilities_used'].get('attackData', 0) > entity['action_count'] * 0.5:
+            entity['inferred_type'] = 'CombatUnit'
+
+    def infer_owners(self, players: dict):
+        """Infer entity owners based on which player uses them most."""
+        for entity in self.entities.values():
+            if entity['players']:
+                # Most frequent player is likely the owner
+                player_counts = Counter()
+                for pid in entity['players']:
+                    player_counts[pid] += 1
+                most_common = player_counts.most_common(1)
+                if most_common:
+                    pid = most_common[0][0]
+                    entity['inferred_owner'] = pid
+                    entity['owner_name'] = players.get(pid, f'P{pid}')
+
+    def get_summary(self) -> List[dict]:
+        """Get a summary of all tracked entities."""
+        summaries = []
+        for target_id, entity in sorted(self.entities.items(), key=lambda x: -x[1]['action_count']):
+            summary = {
+                'target_id': target_id,
+                'inferred_type': entity.get('inferred_type', 'Unknown'),
+                'owner': entity.get('owner_name', 'Unknown'),
+                'first_seen': entity['first_seen_time'],
+                'last_seen': entity['last_seen_time'],
+                'action_count': entity['action_count'],
+                'top_abilities': dict(entity['abilities_used'].most_common(5)),
+            }
+            summaries.append(summary)
+        return summaries
+
+    def to_dict(self) -> dict:
+        """Convert to JSON-serializable dict."""
+        result = {}
+        for target_id, entity in self.entities.items():
+            result[str(target_id)] = {
+                'target_id': target_id,
+                'inferred_type': entity.get('inferred_type'),
+                'inferred_owner': entity.get('inferred_owner'),
+                'owner_name': entity.get('owner_name'),
+                'first_seen': entity['first_seen'],
+                'first_seen_time': entity['first_seen_time'],
+                'last_seen': entity['last_seen'],
+                'last_seen_time': entity['last_seen_time'],
+                'action_count': entity['action_count'],
+                'players': list(entity['players']),
+                'abilities_used': dict(entity['abilities_used']),
+                'abilities_cast': dict(entity['abilities_cast']),
+                'target_types': dict(entity['target_types']),
+            }
+        return result
+
+
 class SGReplayParser:
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, ability_lookup: Optional['AbilityLookup'] = None):
         self.filepath = filepath
         self.header = {}
         self.messages = []
@@ -144,6 +359,10 @@ class SGReplayParser:
         self.chat = []
         self.positions = []
         self.map_name = None
+        self.ability_lookup = ability_lookup
+        self.entity_tracker = EntityTracker(ability_lookup)
+        self.target_type_stats = Counter()  # track all target_type usage
+        self.ability_id_stats = Counter()   # track all ability_id usage
 
     def load(self):
         """Load and decompress the replay file"""
@@ -179,7 +398,29 @@ class SGReplayParser:
         self._extract_game_info()
         self._extract_actions()
         self._extract_chat()
+        self._track_entities()
         return self
+
+    def _track_entities(self):
+        """Build entity tracking and stats from actions."""
+        for action in self.actions:
+            # Track entities
+            self.entity_tracker.record_action(action)
+
+            # Track target_type stats
+            target_type = action.get('target_type')
+            if target_type:
+                name = action.get('target_type_name') or str(target_type)
+                self.target_type_stats[name] += 1
+
+            # Track ability_id stats
+            ability_id = action.get('ability_id')
+            if ability_id:
+                name = action.get('ability_name') or str(ability_id)
+                self.ability_id_stats[name] += 1
+
+        # Infer entity owners
+        self.entity_tracker.infer_owners(self.players)
 
     def _extract_game_info(self):
         """Extract map name and player info"""
@@ -243,6 +484,9 @@ class SGReplayParser:
 
                     data = entry['v']
 
+                    # Store simplified raw data for all actions
+                    action['raw'] = simplify_protobuf(data)
+
                     # Categorize by field number
                     if field_num == 7:
                         action['type'] = 'COMMAND'
@@ -254,17 +498,41 @@ class SGReplayParser:
                                 if sf9['t'] == 'm':
                                     target_id = get_nested(sf9['v'], 1)
                                     target_type = get_nested(sf9['v'], 2)
+                                    f3 = get_nested(sf9['v'], 3)
+                                    f4 = get_nested(sf9['v'], 4)
+                                    f5 = get_nested(sf9['v'], 5)
+                                    f6 = get_nested(sf9['v'], 6)
+
                                     if target_id:
                                         action['target_id'] = target_id
                                     if target_type:
                                         action['target_type'] = target_type
+                                        if self.ability_lookup:
+                                            name, base_type = self.ability_lookup.get_full(target_type)
+                                            if name != str(target_type):
+                                                action['target_type_name'] = name
+
+                                    # Include f3-f6 if non-zero
+                                    if f3:
+                                        action['target_f3'] = f3
+                                    if f4:
+                                        action['target_f4'] = f4
+                                    if f5:
+                                        action['target_f5'] = f5
+                                    if f6:
+                                        action['target_f6'] = f6
 
                         # Extract ability info (subfield 4)
                         if 4 in data:
                             action['has_ability'] = True
                             ability_data = get_nested(data, 4)
                             if ability_data:
-                                action['ability_id'] = get_nested(ability_data, 1)
+                                ability_id = get_nested(ability_data, 1)
+                                action['ability_id'] = ability_id
+                                if ability_id and self.ability_lookup:
+                                    name, base_type = self.ability_lookup.get_full(ability_id)
+                                    if name != str(ability_id):
+                                        action['ability_name'] = name
 
                     elif field_num == 4:
                         action['type'] = 'SPAWN'
@@ -393,6 +661,32 @@ class SGReplayParser:
             if xs and ys:
                 print(f"  Map bounds: X=[{min(xs):.0f}, {max(xs):.0f}]  Y=[{min(ys):.0f}, {max(ys):.0f}]")
 
+        # Entity tracking
+        print(f"\n{'='*40}")
+        print("ENTITY TRACKING")
+        print(f"{'='*40}")
+        entities = self.entity_tracker.get_summary()
+        print(f"Tracked {len(entities)} entities:")
+        for e in entities[:10]:
+            abilities = ', '.join(list(e['top_abilities'].keys())[:3])
+            etype = e['inferred_type'] or 'Unknown'
+            owner = e['owner'] or 'Unknown'
+            print(f"  {e['target_id']:>12}: {etype:15} owner={owner:15} actions={e['action_count']:4}  [{abilities}]")
+
+        # Target type stats
+        print(f"\n{'='*40}")
+        print("TARGET TYPE USAGE")
+        print(f"{'='*40}")
+        for name, count in self.target_type_stats.most_common(15):
+            print(f"  {name:40}: {count:5}")
+
+        # Ability stats
+        print(f"\n{'='*40}")
+        print("ABILITY USAGE")
+        print(f"{'='*40}")
+        for name, count in self.ability_id_stats.most_common(15):
+            print(f"  {name:40}: {count:5}")
+
         # Timeline sample
         print(f"\n{'='*40}")
         print("ACTION TIMELINE (first 50)")
@@ -404,8 +698,12 @@ class SGReplayParser:
             elif a['type'] == 'COMMAND':
                 if a.get('x') is not None:
                     details = f"pos=({a['x']:.0f}, {a['y']:.0f})"
+                elif a.get('ability_name'):
+                    details = f"ability={a['ability_name']}"
                 elif a.get('ability_id'):
                     details = f"ability={a['ability_id']}"
+                if a.get('target_type_name'):
+                    details += f" target={a['target_type_name']}"
             print(f"  [{a['time']}] {a['player']:15} {a['type']:15} {details}")
 
     def to_json(self, include_actions: bool = False) -> dict:
@@ -420,6 +718,9 @@ class SGReplayParser:
             'action_types': dict(Counter(a['type'] for a in self.actions)),
             'chat': self.chat,
             'duration_seconds': max((a['frame'] or 0) for a in self.actions) / 1000 if self.actions else 0,
+            'target_type_stats': dict(self.target_type_stats.most_common()),
+            'ability_stats': dict(self.ability_id_stats.most_common()),
+            'entities': self.entity_tracker.to_dict(),
         }
 
         if include_actions:
@@ -439,6 +740,8 @@ class SGReplayParser:
                     clean_a['y'] = a['y']
                 if a.get('ability_id'):
                     clean_a['ability_id'] = a['ability_id']
+                if a.get('ability_name'):
+                    clean_a['ability_name'] = a['ability_name']
                 if a.get('unit_type'):
                     clean_a['unit_type'] = a['unit_type']
                 if a.get('owner'):
@@ -449,10 +752,24 @@ class SGReplayParser:
                     clean_a['target_id'] = a['target_id']
                 if a.get('target_type'):
                     clean_a['target_type'] = a['target_type']
+                if a.get('target_type_name'):
+                    clean_a['target_type_name'] = a['target_type_name']
+                # Include target subfields f3-f6
+                if a.get('target_f3'):
+                    clean_a['target_f3'] = a['target_f3']
+                if a.get('target_f4'):
+                    clean_a['target_f4'] = a['target_f4']
+                if a.get('target_f5'):
+                    clean_a['target_f5'] = a['target_f5']
+                if a.get('target_f6'):
+                    clean_a['target_f6'] = a['target_f6']
                 # Include sync data
                 for key in a:
                     if key.startswith('sync_'):
                         clean_a[key] = a[key]
+                # Include raw data
+                if a.get('raw'):
+                    clean_a['raw'] = a['raw']
                 clean_actions.append(clean_a)
             result['actions'] = clean_actions
 
@@ -492,6 +809,8 @@ Note: Resources are not stored in replay files. Replays are command-based
                            help='Output JSON file path (default: <replay>_actions.json)')
     arg_parser.add_argument('--quiet', '-q', action='store_true',
                            help='Suppress console output (only export JSON)')
+    arg_parser.add_argument('--no-lookup', action='store_true',
+                           help='Disable ability name lookup')
 
     args = arg_parser.parse_args()
 
@@ -499,7 +818,18 @@ Note: Resources are not stored in replay files. Replays are command-based
         print(f"Error: File not found: {args.replay}")
         sys.exit(1)
 
-    parser = SGReplayParser(args.replay)
+    # Load ability lookup if available
+    ability_lookup = None
+    if ABILITY_LOOKUP_AVAILABLE and not args.no_lookup:
+        try:
+            ability_lookup = AbilityLookup()
+            if not args.quiet:
+                print(f"Loaded ability lookup ({len(ability_lookup.lookup):,} entries)")
+        except Exception as e:
+            if not args.quiet:
+                print(f"Warning: Could not load ability lookup: {e}")
+
+    parser = SGReplayParser(args.replay, ability_lookup=ability_lookup)
     parser.load().parse()
 
     if not args.quiet:
