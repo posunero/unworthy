@@ -624,13 +624,10 @@
                 <h2>Player Stats Summary</h2>
                 <div class="summary-filters">
                     <label style="color: #8b7355;">Directory:</label>
-                    <select id="dirFilter">
-                        <option value="">All Directories</option>
-                    </select>
+                    <div id="dirButtons" style="display: flex; gap: 5px; flex-wrap: wrap;"></div>
+                    <input type="text" id="dirInput" placeholder="Or enter custom path..." style="width: 180px; padding: 8px; background: #1a1512; border: 1px solid #3d3028; border-radius: 5px; color: #f0e6dc; font-size: 12px;">
                     <label style="color: #8b7355;">Player:</label>
-                    <select id="playerSelectFilter">
-                        <option value="">Auto-detect</option>
-                    </select>
+                    <input type="text" id="playerInput" placeholder="Auto-detect" style="width: 120px; padding: 8px; background: #1a1512; border: 1px solid #3d3028; border-radius: 5px; color: #f0e6dc;">
                     <label style="color: #8b7355;">Patch:</label>
                     <select id="changelistFilter">
                         <option value="">All Patches</option>
@@ -877,9 +874,13 @@
         const summaryContainer = document.getElementById('summaryContainer');
         const replayViewContainer = document.getElementById('replayViewContainer');
         const changelistFilter = document.getElementById('changelistFilter');
-        const playerSelectFilter = document.getElementById('playerSelectFilter');
-        const dirFilter = document.getElementById('dirFilter');
+        const playerInput = document.getElementById('playerInput');
+        const dirInput = document.getElementById('dirInput');
+        const dirButtons = document.getElementById('dirButtons');
         const refreshSummaryBtn = document.getElementById('refreshSummary');
+
+        // Currently selected directory
+        let selectedDir = null;
 
         // View switching
         summaryViewBtn.addEventListener('click', () => {
@@ -918,8 +919,8 @@
                     showError(data.error);
                     // Still populate filters if available
                     if (data.changelists) populateChangelistFilter(data.changelists);
-                    if (data.available_players) populatePlayerFilter(data.available_players);
-                    if (data.available_dirs) populateDirFilter(data.available_dirs);
+                    if (data.available_players) updatePlayerInput(data.available_players);
+                    if (data.available_dirs) updateDirButtons(data.available_dirs);
                 } else {
                     displaySummary(data);
                 }
@@ -946,33 +947,57 @@
             }
         }
 
-        function populatePlayerFilter(players, selected = null) {
-            const currentValue = selected || playerSelectFilter.value;
-            playerSelectFilter.innerHTML = '<option value="">Auto-detect</option>';
-            players.forEach(player => {
-                const option = document.createElement('option');
-                option.value = player;
-                option.textContent = player;
-                playerSelectFilter.appendChild(option);
-            });
-            // Restore selection
-            if (currentValue && players.includes(currentValue)) {
-                playerSelectFilter.value = currentValue;
+        function updatePlayerInput(players, selected = null) {
+            // Store available players for autocomplete (future enhancement)
+            playerInput.dataset.players = JSON.stringify(players);
+            // Set current player if provided
+            if (selected && !playerInput.value) {
+                playerInput.value = selected;
             }
         }
 
-        function populateDirFilter(dirs, selected = null) {
-            const currentValue = selected || dirFilter.value;
-            dirFilter.innerHTML = '<option value="">All Directories</option>';
-            dirs.forEach(d => {
-                const option = document.createElement('option');
-                option.value = d.path;
-                option.textContent = d.name;
-                dirFilter.appendChild(option);
+        function updateDirButtons(dirs, selected = null) {
+            // Create buttons for available directories
+            dirButtons.innerHTML = '';
+
+            // Add "All" button
+            const allBtn = document.createElement('button');
+            allBtn.textContent = 'All';
+            allBtn.style.cssText = 'padding: 6px 12px; font-size: 12px;';
+            allBtn.className = !selected ? 'active' : '';
+            allBtn.addEventListener('click', () => {
+                selectedDir = null;
+                dirInput.value = '';
+                updateDirButtonStyles();
+                loadSummary(getCurrentFilterOptions());
             });
-            // Restore selection
-            if (currentValue) {
-                dirFilter.value = currentValue;
+            dirButtons.appendChild(allBtn);
+
+            // Add buttons for each directory
+            dirs.forEach(d => {
+                const btn = document.createElement('button');
+                btn.textContent = d.name;
+                btn.title = d.path;
+                btn.style.cssText = 'padding: 6px 12px; font-size: 12px;';
+                btn.className = selected === d.path ? 'active' : '';
+                btn.addEventListener('click', () => {
+                    selectedDir = d.path;
+                    dirInput.value = '';
+                    updateDirButtonStyles();
+                    loadSummary(getCurrentFilterOptions());
+                });
+                dirButtons.appendChild(btn);
+            });
+
+            // Update styles
+            function updateDirButtonStyles() {
+                Array.from(dirButtons.children).forEach((btn, i) => {
+                    if (i === 0) {
+                        btn.className = !selectedDir ? 'active' : '';
+                    } else {
+                        btn.className = selectedDir === dirs[i-1].path ? 'active' : '';
+                    }
+                });
             }
         }
 
@@ -988,10 +1013,10 @@
                 populateChangelistFilter(data.changelists, data.changelist_filter);
             }
             if (data.available_players) {
-                populatePlayerFilter(data.available_players, data.main_player);
+                updatePlayerInput(data.available_players, data.main_player);
             }
             if (data.available_dirs) {
-                populateDirFilter(data.available_dirs, data.selected_dir);
+                updateDirButtons(data.available_dirs, data.selected_dir);
             }
 
             // Overview stats
@@ -1227,8 +1252,8 @@
         function getCurrentFilterOptions() {
             return {
                 changelist: changelistFilter.value || null,
-                player: playerSelectFilter.value || null,
-                dir: dirFilter.value || null,
+                player: playerInput.value.trim() || null,
+                dir: dirInput.value.trim() || selectedDir || null,
             };
         }
 
@@ -1237,12 +1262,21 @@
             loadSummary(getCurrentFilterOptions());
         });
 
-        playerSelectFilter.addEventListener('change', () => {
-            loadSummary(getCurrentFilterOptions());
+        // Debounce for text inputs
+        let playerInputTimeout;
+        playerInput.addEventListener('input', () => {
+            clearTimeout(playerInputTimeout);
+            playerInputTimeout = setTimeout(() => {
+                loadSummary(getCurrentFilterOptions());
+            }, 500);
         });
 
-        dirFilter.addEventListener('change', () => {
-            loadSummary(getCurrentFilterOptions());
+        let dirInputTimeout;
+        dirInput.addEventListener('input', () => {
+            clearTimeout(dirInputTimeout);
+            dirInputTimeout = setTimeout(() => {
+                loadSummary(getCurrentFilterOptions());
+            }, 500);
         });
 
         // Refresh button

@@ -14,10 +14,32 @@ import traceback
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs
 import tempfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _parse_replay_file(replay_file):
+    """Parse a single replay file. Module-level function for multiprocessing."""
+    import traceback
+    from parse_sgreplay import SGReplayParser as ReplayParser
+    try:
+        from ability_lookup import AbilityLookup
+        ability_lookup = AbilityLookup()
+    except Exception:
+        ability_lookup = None
+
+    try:
+        parser = ReplayParser(replay_file['path'], ability_lookup=ability_lookup)
+        parser.load()
+        parser.parse()
+        data = parser.to_json(include_actions=False)
+        return {'success': True, 'data': data, 'name': replay_file['name']}
+    except Exception as e:
+        tb = traceback.format_exc()
+        return {'success': False, 'name': replay_file['name'], 'error': str(e), 'traceback': tb}
 
 from parse_sgreplay import SGReplayParser as ReplayParser
 from collections import defaultdict, Counter
@@ -382,30 +404,15 @@ class ReplayHandler(SimpleHTTPRequestHandler):
         # Sort by modification time (most recent first)
         replay_files.sort(key=lambda r: r['mtime'], reverse=True)
 
-        # Parse replays concurrently
-        def parse_replay_file(replay_file):
-            """Parse a single replay file and return data or None on error."""
-            try:
-                parser = ReplayParser(replay_file['path'], ability_lookup=ability_lookup)
-                parser.load()
-                parser.parse()
-                data = parser.to_json(include_actions=False)
-                return {'success': True, 'data': data, 'name': replay_file['name']}
-            except Exception as e:
-                print(f"\n{'='*60}")
-                print(f"Error parsing {replay_file['name']}: {e}")
-                print(f"{'='*60}")
-                traceback.print_exc()
-                print(f"{'='*60}\n")
-                return {'success': False, 'name': replay_file['name']}
-
+        # Parse replays concurrently using multiprocessing
         replays_data = []
         player_counts = Counter()
         changelists = set()
 
-        # Use ThreadPoolExecutor for concurrent parsing
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {executor.submit(parse_replay_file, rf): rf for rf in replay_files}
+        # Use ProcessPoolExecutor for true parallel parsing
+        num_workers = min(8, multiprocessing.cpu_count())
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(_parse_replay_file, rf): rf for rf in replay_files}
             for future in as_completed(futures):
                 result = future.result()
                 if result['success']:
@@ -419,6 +426,12 @@ class ReplayHandler(SimpleHTTPRequestHandler):
                         player_counts[name] += 1
 
                     replays_data.append(data)
+                else:
+                    print(f"\n{'='*60}")
+                    print(f"Error parsing {result['name']}: {result.get('error', 'Unknown error')}")
+                    if result.get('traceback'):
+                        print(result['traceback'])
+                    print(f"{'='*60}\n")
 
         # Get list of all players for the dropdown
         all_players = [p for p, _ in player_counts.most_common()]
@@ -470,7 +483,11 @@ class ReplayHandler(SimpleHTTPRequestHandler):
             self.send_error(404)
 
     def send_json(self, data, status=200):
-        response = json.dumps(data, indent=2)
+        def json_default(obj):
+            if isinstance(obj, bytes):
+                return {'_bytes': len(obj), '_hex': obj[:64].hex()}
+            return str(obj)
+        response = json.dumps(data, indent=2, default=json_default)
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(response.encode()))
@@ -610,4 +627,6 @@ def main():
 
 
 if __name__ == '__main__':
+    # Required for Windows multiprocessing support
+    multiprocessing.freeze_support()
     main()

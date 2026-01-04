@@ -25,6 +25,8 @@ from protobuf import (
     simplify_protobuf,
     u64_to_i64,
     fixed_to_world,
+    pb_get,
+    pb_has,
 )
 from entity_tracker import EntityTracker
 from replay_analyzers import (
@@ -267,9 +269,11 @@ class SGReplayParser:
 
             # Player info from field 45 (authoritative source for player_id -> name)
             # Structure: field 45 -> entry.v.5 -> dict with field 1 containing name
-            if 45 in content and pid and isinstance(pid, int) and pid != 64:
-                for entry in content[45]:
-                    if entry['t'] == 'm':
+            field45 = pb_get(content, 45)
+            if field45 and pid and isinstance(pid, int) and pid != 64:
+                entries = field45 if isinstance(field45, list) else [field45]
+                for entry in entries:
+                    if isinstance(entry, dict) and entry.get('t') == 'm':
                         # entry['v'][5] is a dict like {1: [{'t': 's', 'v': 'PlayerName'}], ...}
                         name_data = get_nested(entry['v'], 5)
                         if name_data and isinstance(name_data, dict):
@@ -294,9 +298,11 @@ class SGReplayParser:
                 continue
 
             # Fallback: Player info from field 37 (only if not already set from field 45)
-            if 37 in content:
-                for entry in content[37]:
-                    if entry['t'] == 'm':
+            field37 = pb_get(content, 37)
+            if field37:
+                entries = field37 if isinstance(field37, list) else [field37]
+                for entry in entries:
+                    if isinstance(entry, dict) and entry.get('t') == 'm':
                         slot = get_nested(entry['v'], 2)
                         name = get_nested(entry['v'], 3)
                         if slot and isinstance(slot, int) and name and isinstance(name, str):
@@ -334,7 +340,9 @@ class SGReplayParser:
                 continue
 
             for field_num, values in content.items():
-                for entry in values:
+                # Normalize to list - values may be a single entry or a list
+                entries = values if isinstance(values, list) else [values]
+                for entry in entries:
                     if entry['t'] != 'm':
                         continue
 
@@ -355,15 +363,18 @@ class SGReplayParser:
                         bytes_hex_limit=self.bytes_hex_limit,
                     )
 
-                    # Categorize by field number
-                    if field_num == 7:
+                    # Categorize by field number (may be string or int)
+                    field_num_int = int(field_num) if isinstance(field_num, str) else field_num
+                    if field_num_int == 7:
                         action['type'] = 'COMMAND'
                         action['cmd_type'] = get_nested(data, 1)
 
                         # Extract target info (subfield 9) - entity IDs
-                        if 9 in data:
-                            for sf9 in data[9]:
-                                if sf9['t'] == 'm':
+                        field9 = pb_get(data, 9)
+                        if field9:
+                            entries9 = field9 if isinstance(field9, list) else [field9]
+                            for sf9 in entries9:
+                                if isinstance(sf9, dict) and sf9.get('t') == 'm':
                                     target_id = get_nested(sf9['v'], 1)
                                     target_type = get_nested(sf9['v'], 2)
                                     f3 = get_nested(sf9['v'], 3)
@@ -399,7 +410,7 @@ class SGReplayParser:
                                             action['y'] = y
 
                         # Extract ability info (subfield 4)
-                        if 4 in data:
+                        if pb_has(data, 4):
                             action['has_ability'] = True
                             ability_data = get_nested(data, 4)
                             if ability_data:
@@ -438,31 +449,32 @@ class SGReplayParser:
                                         if name != str(build_type):
                                             action['build_type_name'] = name
 
-                    elif field_num == 4:
+                    elif field_num_int == 4:
                         action['type'] = 'SPAWN'
                         action['owner'] = get_nested(data, 1)
                         action['unit_type'] = get_nested(data, 3)
 
-                    elif field_num == 40:
+                    elif field_num_int == 40:
                         action['type'] = 'SYNC'
                         # Extract sync values
                         for k, v in data.items():
-                            if v and v[0]['t'] == 'v':
-                                action[f'sync_{k}'] = v[0]['v']
+                            val_list = v if isinstance(v, list) else [v]
+                            if val_list and isinstance(val_list[0], dict) and val_list[0].get('t') == 'v':
+                                action[f'sync_{k}'] = val_list[0]['v']
                         # Track max sync_1 for game duration (excludes loading time)
                         if action.get('sync_1') and action['sync_1'] > self.max_sync_time:
                             self.max_sync_time = action['sync_1']
 
-                    elif field_num == 37:
+                    elif field_num_int == 37:
                         action['type'] = 'PLAYER_JOIN'
                         action['name'] = get_nested(data, 3)
                         action['slot'] = get_nested(data, 2)
 
-                    elif field_num == 45:
+                    elif field_num_int == 45:
                         action['type'] = 'PROFILE'
 
                     else:
-                        action['type'] = f'FIELD_{field_num}'
+                        action['type'] = f'FIELD_{field_num_int}'
 
                     self.actions.append(action)
 
@@ -669,32 +681,37 @@ class SGReplayParser:
         teams = set(info['team'] for info in slot_to_info.values() if info['team'] is not None)
         has_valid_teams = len(teams) >= 2
 
-        # Try to find Field 31 message to determine losing team
-        losing_team = None
+        # Try to find Field 31 message to determine winning team
+        winning_team = None
         if has_valid_teams:
             for msg in self.messages:
                 content = get_nested(msg, 3, 1)
-                if content and isinstance(content, dict) and 31 in content:
-                    for entry in content[31]:
-                        if entry.get('t') == 'm':
-                            # Field 31.1 is slot of player on losing team
-                            loser_slot = get_nested(entry['v'], 1)
-                            if loser_slot and loser_slot in slot_to_info:
-                                losing_team = slot_to_info[loser_slot]['team']
+                if content and isinstance(content, dict):
+                    # Check for field 31 (try both int and string keys)
+                    field31 = content.get(31) or content.get('31')
+                    if field31:
+                        # field31 may be a single entry or a list
+                        entries = field31 if isinstance(field31, list) else [field31]
+                        for entry in entries:
+                            if isinstance(entry, dict) and entry.get('t') == 'm':
+                                # Field 31.1 is slot of player on WINNING team
+                                winner_slot = get_nested(entry['v'], 1)
+                                if winner_slot and winner_slot in slot_to_info:
+                                    winning_team = slot_to_info[winner_slot]['team']
+                                break
+                        if winning_team is not None:
                             break
-                    if losing_team is not None:
-                        break
 
         # Determine winners/losers based on team
-        if losing_team is not None:
+        if winning_team is not None:
             for slot, info in slot_to_info.items():
                 name = info['name']
-                if info['team'] == losing_team:
-                    result['losers'].append(name)
-                    result['player_results'][str(slot)] = 'loss'
-                else:
+                if info['team'] == winning_team:
                     result['winners'].append(name)
                     result['player_results'][str(slot)] = 'win'
+                else:
+                    result['losers'].append(name)
+                    result['player_results'][str(slot)] = 'loss'
         else:
             # Fallback: use footer field 3 markers
             for p in players_data:
@@ -704,14 +721,14 @@ class SGReplayParser:
                 name = p.get('2')
                 if not name or not isinstance(name, str):
                     name = f'Player {slot}' if slot else 'Unknown'
-                # Field 3 = 1 indicates loss, absence indicates win
-                is_loser = p.get('3') == 1
-                if is_loser:
-                    result['losers'].append(name)
-                else:
+                # Field 3 = 1 indicates WIN, absence indicates loss
+                is_winner = p.get('3') == 1
+                if is_winner:
                     result['winners'].append(name)
+                else:
+                    result['losers'].append(name)
                 if slot:
-                    result['player_results'][str(slot)] = 'loss' if is_loser else 'win'
+                    result['player_results'][str(slot)] = 'win' if is_winner else 'loss'
 
         # Map results to actual game slots by matching player names
         # self.players maps game_slot -> name (may differ from footer slots)
@@ -1293,6 +1310,9 @@ class SGReplayParser:
                     continue
                 name = p.get('2')
                 team = p.get('5')
+                # Skip if name was incorrectly decoded as nested message instead of string
+                if not isinstance(name, str):
+                    continue
                 if name and team:
                     name_to_team[name] = team
 

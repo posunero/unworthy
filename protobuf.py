@@ -175,19 +175,29 @@ def get_nested(msg: Dict, *path) -> Any:
 
     This handles the specific protobuf structure where fields are stored as:
     {field_num: [{'t': type, 'v': value}, ...]}
+
+    Path elements can be integers or strings - both are tried since the decoder
+    stores field numbers as strings but callers often use integers.
     """
     current = msg
     for p in path:
-        if not isinstance(current, dict) or p not in current:
+        if not isinstance(current, dict):
             return None
-        vals = current[p]
+        # Try both integer and string versions of the key
+        key = p
+        if p not in current:
+            key = str(p) if isinstance(p, int) else int(p) if isinstance(p, str) and p.isdigit() else None
+            if key is None or key not in current:
+                return None
+        vals = current[key]
         if not vals:
             return None
         entry = vals[0] if isinstance(vals, list) else vals
         if isinstance(entry, dict):
             if entry.get('t') == 'm':
                 current = entry['v']
-            elif entry.get('t') in ('v', 's'):
+            elif entry.get('t') in ('v', 's', 'q', 'f', 'g'):
+                # Return value for varint, string, fixed64, fixed32, group
                 return entry['v']
             else:
                 return entry
@@ -269,6 +279,25 @@ def simplify_protobuf(obj: Any, depth: int = 0, *, include_bytes: bool = False, 
         return obj
 
 
+def pb_get(d: Dict, key: int, default=None):
+    """Get a value from a protobuf dict, trying both int and string keys."""
+    if not isinstance(d, dict):
+        return default
+    if key in d:
+        return d[key]
+    str_key = str(key)
+    if str_key in d:
+        return d[str_key]
+    return default
+
+
+def pb_has(d: Dict, key: int) -> bool:
+    """Check if a protobuf dict has a key (trying both int and string)."""
+    if not isinstance(d, dict):
+        return False
+    return key in d or str(key) in d
+
+
 def u64_to_i64(val: int) -> int:
     """Convert unsigned 64-bit int to signed."""
     if val >= (1 << 63):
@@ -276,8 +305,20 @@ def u64_to_i64(val: int) -> int:
     return val
 
 
-def fixed_to_world(raw: bytes) -> float:
-    """Convert a fixed64 coordinate to world units."""
-    val = struct.unpack('<Q', raw)[0]
+def fixed_to_world(raw) -> Optional[float]:
+    """Convert a fixed64 coordinate to world units.
+
+    Accepts either raw bytes (8 bytes) or an already-decoded int.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        if len(raw) != 8:
+            return None
+        val = struct.unpack('<Q', raw)[0]
+    elif isinstance(raw, int):
+        val = raw
+    else:
+        return None
     signed = u64_to_i64(val)
     return signed / 4096.0
