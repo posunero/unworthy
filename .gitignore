@@ -3,8 +3,19 @@
 *.sgreplay
 replays/
 
-# JSON output files (but not data files)
+# JSON output files
 *_actions.json
+*_summary.json
+temp_output.json
+
+# Data JSON files (not needed for build)
+units.json
+upgrades.json
+abilities.json
+weapons.json
+buffs.json
+traits.json
+buildings.json
 
 # PyInstaller
 *.spec

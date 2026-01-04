@@ -30,10 +30,6 @@ jobs:
           uv run pyinstaller --onefile `
             --add-data "web;web" `
             --add-data "assets;assets" `
-            --add-data "buildings.json;." `
-            --add-data "units.json;." `
-            --add-data "abilities.json;." `
-            --add-data "ability_lookup.py;." `
             --name "sgreplay_parser" `
             parse_sgreplay.py
 
