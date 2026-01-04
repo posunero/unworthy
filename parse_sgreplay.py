@@ -15,6 +15,27 @@ from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+# Import from modular components
+from protobuf import (
+    gzip_header_len,
+    decode_varint,
+    decode_message,
+    get_nested,
+    find_all_strings,
+    simplify_protobuf,
+    u64_to_i64,
+    fixed_to_world,
+)
+from entity_tracker import EntityTracker
+from replay_analyzers import (
+    frame_to_time,
+    frame_to_seconds,
+    FRAME_RATE_HZ,
+    UPGRADE_FRIENDLY_NAMES,
+    UPGRADE_KEYWORDS,
+    STORMGATE_REWARD_NAMES,
+)
+
 # Try to import ability lookup for name resolution
 try:
     from ability_lookup import AbilityLookup
@@ -23,346 +44,67 @@ except ImportError:
     ABILITY_LOOKUP_AVAILABLE = False
     AbilityLookup = None
 
-# Frame values appear to be in milliseconds based on analysis
-# (not game ticks - typical game is 10-30 mins, not 3+ hours)
-FRAME_UNIT_MS = True  # Frame values are milliseconds
+# Load building lookup from buildings.json if available
+BUILDINGS_JSON_PATH = os.path.join(os.path.dirname(__file__), 'buildings.json')
+BUILDING_LOOKUP = {}
+try:
+    if os.path.exists(BUILDINGS_JSON_PATH):
+        with open(BUILDINGS_JSON_PATH, 'r') as f:
+            BUILDING_LOOKUP = {int(k): v for k, v in json.load(f).items()}
+except Exception:
+    pass
 
-def decode_varint(data: bytes, pos: int) -> Tuple[int, int]:
-    result = 0
-    shift = 0
-    while pos < len(data):
-        b = data[pos]
-        result |= (b & 0x7f) << shift
-        pos += 1
-        if (b & 0x80) == 0:
-            break
-        shift += 7
-    return result, pos
-
-def decode_message(data: bytes, depth: int = 0) -> Optional[Dict]:
-    if depth > 15 or len(data) == 0:
-        return None
-    fields = defaultdict(list)
-    pos = 0
-    end = len(data)
-    while pos < end:
-        try:
-            tag, pos = decode_varint(data, pos)
-            if tag == 0:
-                break
-            field_num = tag >> 3
-            wire_type = tag & 0x7
-            if field_num == 0 or field_num > 50000:
-                break
-            if wire_type == 0:
-                value, pos = decode_varint(data, pos)
-                fields[field_num].append({'t': 'v', 'v': value})
-            elif wire_type == 1:
-                if pos + 8 > end:
-                    break
-                raw = data[pos:pos+8]
-                pos += 8
-                fields[field_num].append({'t': 'f64', 'd': struct.unpack('<d', raw)[0], 'i': struct.unpack('<q', raw)[0]})
-            elif wire_type == 2:
-                length, pos = decode_varint(data, pos)
-                if length > end - pos or length < 0:
-                    break
-                raw = data[pos:pos+length]
-                pos += length
-                try:
-                    s = raw.decode('utf-8')
-                    if all(c.isprintable() or c in '\n\r\t ' for c in s):
-                        fields[field_num].append({'t': 's', 'v': s})
-                        continue
-                except:
-                    pass
-                nested = decode_message(raw, depth + 1)
-                if nested:
-                    fields[field_num].append({'t': 'm', 'v': nested})
-                else:
-                    fields[field_num].append({'t': 'b', 'len': len(raw), 'raw': raw})
-            elif wire_type == 5:
-                if pos + 4 > end:
-                    break
-                raw = data[pos:pos+4]
-                pos += 4
-                fields[field_num].append({'t': 'f32', 'f': struct.unpack('<f', raw)[0], 'i': struct.unpack('<i', raw)[0]})
-            else:
-                break
-        except:
-            break
-    return dict(fields) if fields else None
-
-def get_nested(msg: Dict, *path) -> Any:
-    current = msg
-    for p in path:
-        if not isinstance(current, dict) or p not in current:
-            return None
-        vals = current[p]
-        if not vals:
-            return None
-        entry = vals[0]
-        if entry['t'] == 'm':
-            current = entry['v']
-        elif entry['t'] in ('v', 's'):
-            return entry['v']
-        else:
-            return entry
-    return current
-
-def find_all_strings(obj, depth=0):
-    results = []
-    if depth > 15:
-        return results
-    if isinstance(obj, dict):
-        for v in obj.values():
-            results.extend(find_all_strings(v, depth+1))
-    elif isinstance(obj, list):
-        for item in obj:
-            if isinstance(item, dict):
-                if item.get('t') == 's' and item.get('v'):
-                    results.append(item['v'])
-                else:
-                    results.extend(find_all_strings(item, depth+1))
-    return results
+# Compatibility aliases for internal use
+_gzip_header_len = gzip_header_len
+_u64_to_i64 = u64_to_i64
+_fixed_to_world = fixed_to_world
 
 
-def simplify_protobuf(obj, depth=0):
-    """Convert parsed protobuf structure to a simpler JSON-friendly format."""
-    if depth > 20:
-        return None
-    if isinstance(obj, dict):
-        if 't' in obj:
-            # This is a typed value
-            t = obj['t']
-            if t == 'v':
-                return obj['v']
-            elif t == 's':
-                return obj['v']
-            elif t == 'm':
-                return simplify_protobuf(obj['v'], depth + 1)
-            elif t == 'b':
-                return {'_bytes': obj.get('len', 0)}
-            elif t == 'f32':
-                return {'_f32': obj.get('f'), '_i32': obj.get('i')}
-            elif t == 'f64':
-                return {'_f64': obj.get('d'), '_i64': obj.get('i')}
-            else:
-                return obj
-        else:
-            # This is a field dict
-            result = {}
-            for k, v in obj.items():
-                if isinstance(v, list):
-                    simplified = [simplify_protobuf(item, depth + 1) for item in v]
-                    # If single item, unwrap
-                    if len(simplified) == 1:
-                        result[str(k)] = simplified[0]
-                    else:
-                        result[str(k)] = simplified
-                else:
-                    result[str(k)] = simplify_protobuf(v, depth + 1)
-            return result
-    elif isinstance(obj, list):
-        return [simplify_protobuf(item, depth + 1) for item in obj]
-    else:
-        return obj
-
-def frame_to_time(frame: int) -> str:
-    """Convert frame number to mm:ss format"""
-    if frame is None:
-        return "00:00"
-    # Frame values are in milliseconds
-    total_secs = frame / 1000
-    mins = int(total_secs // 60)
-    secs = int(total_secs % 60)
-    return f"{mins:02d}:{secs:02d}"
-
-def frame_to_seconds(frame: int) -> float:
-    """Convert frame to seconds"""
-    if frame is None:
-        return 0
-    return frame / 1000
-
-
-class EntityTracker:
-    """Tracks entities (units/buildings) by their target_id throughout a game."""
-
-    def __init__(self, ability_lookup=None):
-        self.entities = {}  # target_id -> entity info
-        self.ability_lookup = ability_lookup
-
-    def _get_ability_name(self, ability_id):
-        """Get ability name from lookup."""
-        if self.ability_lookup and ability_id:
-            name, _ = self.ability_lookup.get_full(ability_id)
-            if name != str(ability_id):
-                return name
-        return None
-
-    def record_action(self, action: dict):
-        """Record an action involving an entity."""
-        target_id = action.get('target_id')
-        if not target_id:
-            return
-
-        if target_id not in self.entities:
-            self.entities[target_id] = {
-                'id': target_id,
-                'first_seen': action.get('frame'),
-                'first_seen_time': action.get('time'),
-                'last_seen': action.get('frame'),
-                'last_seen_time': action.get('time'),
-                'players': set(),
-                'abilities_used': Counter(),  # abilities used ON this entity
-                'abilities_cast': Counter(),  # abilities cast BY this entity
-                'target_types': Counter(),
-                'action_count': 0,
-                'inferred_type': None,
-                'inferred_owner': None,
-            }
-
-        entity = self.entities[target_id]
-        entity['last_seen'] = action.get('frame')
-        entity['last_seen_time'] = action.get('time')
-        entity['action_count'] += 1
-
-        player_id = action.get('player_id')
-        if player_id:
-            entity['players'].add(player_id)
-
-        # Track target_type (ability used on this entity)
-        target_type = action.get('target_type')
-        if target_type:
-            name = action.get('target_type_name') or self._get_ability_name(target_type) or str(target_type)
-            entity['target_types'][name] += 1
-            entity['abilities_used'][name] += 1
-
-        # Track ability_id (ability cast, possibly by this entity)
-        ability_id = action.get('ability_id')
-        if ability_id:
-            name = action.get('ability_name') or self._get_ability_name(ability_id) or str(ability_id)
-            entity['abilities_cast'][name] += 1
-
-        # Try to infer entity type from abilities
-        self._infer_type(entity)
-
-    def _infer_type(self, entity: dict):
-        """Infer what type of entity this is based on abilities used."""
-        # Look for spawn abilities which indicate building type
-        spawn_indicators = {
-            'HQSpawn': 'HQ',
-            'Shrine_Spawn': 'Shrine',
-            'BarracksSpawn': 'Barracks',
-            'IronVault_Spawn': 'IronVault',
-            'CreationChamber_Spawn': 'CreationChamber',
-            'Arcship_Spawn': 'Arcship',
-            'Conclave_Spawn': 'Conclave',
-        }
-
-        morph_indicators = {
-            'ArcshipTier1Land': 'Arcship',
-            'ArcshipTier1Liftoff': 'Arcship',
-            'MorphToArcshipTier2': 'Arcship',
-            'MorphToArcshipTier3': 'Arcship',
-            'MorphToHQTier2': 'HQ',
-            'MorphToGreaterShrine': 'Shrine',
-        }
-
-        construct_indicators = {
-            'WorkerConstructAbilityData': 'Worker',
-            'Imp_Construct': 'Imp',
-            'Celestial_Construct': 'Celestial',
-        }
-
-        # Check abilities used on this entity
-        for ability, count in entity['abilities_used'].items():
-            if ability in spawn_indicators:
-                entity['inferred_type'] = spawn_indicators[ability]
-                return
-            if ability in morph_indicators:
-                entity['inferred_type'] = morph_indicators[ability]
-                return
-
-        # Check abilities cast by this entity
-        for ability, count in entity['abilities_cast'].items():
-            if ability in spawn_indicators:
-                entity['inferred_type'] = spawn_indicators[ability]
-                return
-            if ability in construct_indicators:
-                entity['inferred_type'] = construct_indicators[ability]
-                return
-
-        # If mostly attack actions, probably a combat unit
-        if entity['abilities_used'].get('attackData', 0) > entity['action_count'] * 0.5:
-            entity['inferred_type'] = 'CombatUnit'
-
-    def infer_owners(self, players: dict):
-        """Infer entity owners based on which player uses them most."""
-        for entity in self.entities.values():
-            if entity['players']:
-                # Most frequent player is likely the owner
-                player_counts = Counter()
-                for pid in entity['players']:
-                    player_counts[pid] += 1
-                most_common = player_counts.most_common(1)
-                if most_common:
-                    pid = most_common[0][0]
-                    entity['inferred_owner'] = pid
-                    entity['owner_name'] = players.get(pid, f'P{pid}')
-
-    def get_summary(self) -> List[dict]:
-        """Get a summary of all tracked entities."""
-        summaries = []
-        for target_id, entity in sorted(self.entities.items(), key=lambda x: -x[1]['action_count']):
-            summary = {
-                'target_id': target_id,
-                'inferred_type': entity.get('inferred_type', 'Unknown'),
-                'owner': entity.get('owner_name', 'Unknown'),
-                'first_seen': entity['first_seen_time'],
-                'last_seen': entity['last_seen_time'],
-                'action_count': entity['action_count'],
-                'top_abilities': dict(entity['abilities_used'].most_common(5)),
-            }
-            summaries.append(summary)
-        return summaries
-
-    def to_dict(self) -> dict:
-        """Convert to JSON-serializable dict."""
-        result = {}
-        for target_id, entity in self.entities.items():
-            result[str(target_id)] = {
-                'target_id': target_id,
-                'inferred_type': entity.get('inferred_type'),
-                'inferred_owner': entity.get('inferred_owner'),
-                'owner_name': entity.get('owner_name'),
-                'first_seen': entity['first_seen'],
-                'first_seen_time': entity['first_seen_time'],
-                'last_seen': entity['last_seen'],
-                'last_seen_time': entity['last_seen_time'],
-                'action_count': entity['action_count'],
-                'players': list(entity['players']),
-                'abilities_used': dict(entity['abilities_used']),
-                'abilities_cast': dict(entity['abilities_cast']),
-                'target_types': dict(entity['target_types']),
-            }
-        return result
+class _LegacyFunctionsRemoved:
+    """
+    The following functions have been moved to separate modules:
+    - protobuf.py: gzip_header_len, decode_varint, decode_message, get_nested,
+                   find_all_strings, simplify_protobuf, u64_to_i64, fixed_to_world
+    - entity_tracker.py: EntityTracker class
+    - replay_analyzers.py: frame_to_time, frame_to_seconds, analysis constants
+    """
+    pass
 
 
 class SGReplayParser:
-    def __init__(self, filepath: str, ability_lookup: Optional['AbilityLookup'] = None):
+    def __init__(
+        self,
+        filepath: str,
+        ability_lookup: Optional['AbilityLookup'] = None,
+        *,
+        include_bytes: bool = False,
+        bytes_hex_limit: int = 64,
+    ):
         self.filepath = filepath
         self.header = {}
         self.messages = []
+        self.raw_messages = []  # list of {'length': int, 'raw': bytes} for debugging/completeness checks
         self.players = {}
         self.actions = []
         self.chat = []
         self.positions = []
         self.map_name = None
         self.ability_lookup = ability_lookup
+        self.include_bytes = include_bytes
+        self.bytes_hex_limit = bytes_hex_limit
         self.entity_tracker = EntityTracker(ability_lookup)
         self.target_type_stats = Counter()  # track all target_type usage
         self.ability_id_stats = Counter()   # track all ability_id usage
+        self.max_sync_time = 0  # max sync_1 value (game time in ticks, excludes loading)
+        # Decompression/format details (helps confirm completeness)
+        self.raw_data = b""
+        self.gzip_header_len = 0
+        self.gzip_trailer = None  # {'crc32': int, 'isize': int} when available
+        self.compressed_unused = b""  # bytes after deflate stream in the compressed payload
+        self.compressed_unused_len = 0
+        # Some replays include an uncompressed protobuf footer after the gzip trailer.
+        self.footer_protobuf = None  # decoded protobuf dict (typed)
+        self.footer = None  # simplified footer protobuf (JSON-friendly)
 
     def load(self):
         """Load and decompress the replay file"""
@@ -375,11 +117,101 @@ class SGReplayParser:
                 'changelist': struct.unpack('<I', header_data[12:16])[0],
                 'flags': struct.unpack('<I', header_data[16:20])[0],
             }
-            compressed = f.read()
+            payload = f.read()
 
-        # Decompress (skip 10-byte gzip header)
+        # Decompress Stormgate payload: gzip header + raw deflate stream (+ trailer/extra bytes).
+        offset = 0
+        if payload.startswith(b'\x1f\x8b'):
+            try:
+                offset = _gzip_header_len(payload)
+            except Exception:
+                # Fallback to the common 10-byte header if parsing fails
+                offset = 10
+        self.gzip_header_len = offset
+
         decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
-        self.raw_data = decompressor.decompress(compressed[10:])
+        self.raw_data = decompressor.decompress(payload[offset:]) + decompressor.flush()
+
+        # Bytes after deflate stream in the compressed payload (often gzip trailer + extra data).
+        # IMPORTANT: These bytes are NOT part of the decompressed message stream and were
+        # previously ignored, which can drop useful metadata.
+        self.compressed_unused = decompressor.unused_data or b""
+        self.compressed_unused_len = len(self.compressed_unused)
+
+        # Preserve backwards-compat attr (was used for debugging only)
+        self._decompress_unused_bytes = self.compressed_unused_len
+
+        # If this is a gzip-wrapped payload, the first 8 bytes after the deflate stream
+        # are usually the gzip trailer: CRC32 + ISIZE (RFC 1952). Some replays then append
+        # an *uncompressed* protobuf message containing metadata.
+        extra_after_trailer = self.compressed_unused
+        self.gzip_trailer = None
+        if payload.startswith(b'\x1f\x8b') and len(extra_after_trailer) >= 8:
+            try:
+                crc32, isize = struct.unpack('<II', extra_after_trailer[:8])
+                self.gzip_trailer = {'crc32': crc32, 'isize': isize}
+                extra_after_trailer = extra_after_trailer[8:]
+            except Exception:
+                # If trailer parsing fails, just treat everything as extra.
+                extra_after_trailer = self.compressed_unused
+
+        # Try to decode any extra bytes as protobuf (either a stream of length-prefixed
+        # messages or a single message). This makes exports more complete for reverse engineering.
+        self.footer_protobuf = None
+        self.footer = None
+        if extra_after_trailer:
+            decoded = None
+
+            # Attempt: length-prefixed message stream (must consume ALL bytes to be accepted)
+            try:
+                pos = 0
+                footer_msgs = []
+                while pos < len(extra_after_trailer):
+                    length, pos2 = decode_varint(extra_after_trailer, pos)
+                    if length <= 0 or pos2 + length > len(extra_after_trailer):
+                        footer_msgs = []
+                        break
+                    msg_data = extra_after_trailer[pos2:pos2+length]
+                    m = decode_message(msg_data)
+                    if not m:
+                        footer_msgs = []
+                        break
+                    footer_msgs.append(m)
+                    pos = pos2 + length
+                if footer_msgs and pos == len(extra_after_trailer):
+                    # Represent multiple footer messages under a synthetic dict key
+                    decoded = {'_footer_stream': footer_msgs}
+            except Exception:
+                decoded = None
+
+            # Fallback: single protobuf message
+            if decoded is None:
+                try:
+                    decoded = decode_message(extra_after_trailer)
+                except Exception:
+                    decoded = None
+
+            if decoded:
+                self.footer_protobuf = decoded
+                # If we wrapped a footer stream, simplify each message; otherwise simplify directly.
+                if isinstance(decoded, dict) and '_footer_stream' in decoded:
+                    self.footer = {
+                        '_footer_stream': [
+                            simplify_protobuf(
+                                m,
+                                include_bytes=self.include_bytes,
+                                bytes_hex_limit=self.bytes_hex_limit,
+                            )
+                            for m in decoded['_footer_stream']
+                        ]
+                    }
+                else:
+                    self.footer = simplify_protobuf(
+                        decoded,
+                        include_bytes=self.include_bytes,
+                        bytes_hex_limit=self.bytes_hex_limit,
+                    )
+
         return self
 
     def parse(self):
@@ -391,6 +223,7 @@ class SGReplayParser:
                 break
             msg_data = self.raw_data[pos:pos+length]
             pos += length
+            self.raw_messages.append({'length': length, 'raw': msg_data})
             decoded = decode_message(msg_data)
             if decoded:
                 self.messages.append(decoded)
@@ -409,13 +242,13 @@ class SGReplayParser:
 
             # Track target_type stats
             target_type = action.get('target_type')
-            if target_type:
+            if target_type and isinstance(target_type, (int, str)):
                 name = action.get('target_type_name') or str(target_type)
                 self.target_type_stats[name] += 1
 
             # Track ability_id stats
             ability_id = action.get('ability_id')
-            if ability_id:
+            if ability_id and isinstance(ability_id, (int, str)):
                 name = action.get('ability_name') or str(ability_id)
                 self.ability_id_stats[name] += 1
 
@@ -424,6 +257,27 @@ class SGReplayParser:
 
     def _extract_game_info(self):
         """Extract map name and player info"""
+        # First pass: get player info from field 45 (actual player_id -> name mapping)
+        # Field 45 contains the TRUE mapping between player_id used in actions and player names
+        for msg in self.messages[:50]:
+            pid = get_nested(msg, 2)
+            content = get_nested(msg, 3, 1)
+            if not content:
+                continue
+
+            # Player info from field 45 (authoritative source for player_id -> name)
+            # Structure: field 45 -> entry.v.5 -> dict with field 1 containing name
+            if 45 in content and pid and isinstance(pid, int) and pid != 64:
+                for entry in content[45]:
+                    if entry['t'] == 'm':
+                        # entry['v'][5] is a dict like {1: [{'t': 's', 'v': 'PlayerName'}], ...}
+                        name_data = get_nested(entry['v'], 5)
+                        if name_data and isinstance(name_data, dict):
+                            name = get_nested(name_data, 1)
+                            if name and isinstance(name, str):
+                                self.players[pid] = name
+
+        # Second pass: map name and fallback to field 37 if field 45 didn't provide players
         for msg in self.messages[:50]:
             pid = get_nested(msg, 2)
 
@@ -439,23 +293,33 @@ class SGReplayParser:
             if not content:
                 continue
 
-            # Player info from field 37
+            # Fallback: Player info from field 37 (only if not already set from field 45)
             if 37 in content:
                 for entry in content[37]:
                     if entry['t'] == 'm':
                         slot = get_nested(entry['v'], 2)
                         name = get_nested(entry['v'], 3)
-                        if slot and name:
-                            self.players[slot] = name
+                        if slot and isinstance(slot, int) and name and isinstance(name, str):
+                            if slot not in self.players:
+                                self.players[slot] = name
 
-            # Player info from field 45 (profile data)
-            if 45 in content and pid and pid not in self.players:
-                for entry in content[45]:
-                    if entry['t'] == 'm':
-                        # Path: 45 -> 5 -> 1 = name, 5 -> 2 = player ID string
-                        name = get_nested(entry['v'], 5, 1)
-                        if name and isinstance(name, str):
-                            self.players[pid] = name
+        # Fallback: try to get missing player names from footer
+        # Footer field 3 contains player results with slot and name
+        if self.footer and '3' in self.footer:
+            players_data = self.footer['3']
+            if isinstance(players_data, list):
+                for p in players_data:
+                    if not isinstance(p, dict):
+                        continue
+                    slot = p.get('1')
+                    name = p.get('2')
+                    if slot and isinstance(slot, int):
+                        if slot not in self.players:
+                            if name and isinstance(name, str):
+                                self.players[slot] = name
+                            else:
+                                # Player exists but name is corrupted/missing
+                                self.players[slot] = f"Player {slot}"
 
     def _extract_actions(self):
         """Extract all player actions"""
@@ -485,7 +349,11 @@ class SGReplayParser:
                     data = entry['v']
 
                     # Store simplified raw data for all actions
-                    action['raw'] = simplify_protobuf(data)
+                    action['raw'] = simplify_protobuf(
+                        data,
+                        include_bytes=self.include_bytes,
+                        bytes_hex_limit=self.bytes_hex_limit,
+                    )
 
                     # Categorize by field number
                     if field_num == 7:
@@ -522,6 +390,14 @@ class SGReplayParser:
                                     if f6:
                                         action['target_f6'] = f6
 
+                                    # Decode fixed-point coordinates if present
+                                    if f5 is not None and f6 is not None:
+                                        x = _fixed_to_world(f5)
+                                        y = _fixed_to_world(f6)
+                                        if x is not None and y is not None:
+                                            action['x'] = x
+                                            action['y'] = y
+
                         # Extract ability info (subfield 4)
                         if 4 in data:
                             action['has_ability'] = True
@@ -534,6 +410,34 @@ class SGReplayParser:
                                     if name != str(ability_id):
                                         action['ability_name'] = name
 
+                                # Extract build/spawn info from field 4 subfields
+                                # f4.2 = position index (often build slot / UI ref)
+                                # f4.3 = building/unit type (common for construction placement)
+                                # f4.5/f4.6 appear to be generic flags/unknowns; DO NOT treat as a unit slot.
+                                action['ability_pos_index'] = get_nested(ability_data, 2)
+                                build_type = get_nested(ability_data, 3)
+                                action['ability_f5'] = get_nested(ability_data, 5)
+                                action['ability_f6'] = get_nested(ability_data, 6)
+
+                                # Extract ability coordinates (4 -> 4 -> (1,2)) when present
+                                coords = get_nested(ability_data, 4)
+                                if isinstance(coords, dict):
+                                    ax = get_nested(coords, 1)
+                                    ay = get_nested(coords, 2)
+                                    if ax is not None and ay is not None and action.get('x') is None:
+                                        x = _fixed_to_world(ax)
+                                        y = _fixed_to_world(ay)
+                                        if x is not None and y is not None:
+                                            action['x'] = x
+                                            action['y'] = y
+
+                                if build_type:
+                                    action['build_type'] = build_type
+                                    if self.ability_lookup:
+                                        name, base_type = self.ability_lookup.get_full(build_type)
+                                        if name != str(build_type):
+                                            action['build_type_name'] = name
+
                     elif field_num == 4:
                         action['type'] = 'SPAWN'
                         action['owner'] = get_nested(data, 1)
@@ -545,6 +449,9 @@ class SGReplayParser:
                         for k, v in data.items():
                             if v and v[0]['t'] == 'v':
                                 action[f'sync_{k}'] = v[0]['v']
+                        # Track max sync_1 for game duration (excludes loading time)
+                        if action.get('sync_1') and action['sync_1'] > self.max_sync_time:
+                            self.max_sync_time = action['sync_1']
 
                     elif field_num == 37:
                         action['type'] = 'PLAYER_JOIN'
@@ -592,6 +499,18 @@ class SGReplayParser:
         print(f"Version: {self.header['version']}")
         print(f"Raw size: {len(self.raw_data):,} bytes")
         print(f"Messages: {len(self.messages):,}")
+        if self.compressed_unused_len:
+            trailer = ""
+            if isinstance(self.gzip_trailer, dict):
+                trailer = f" (gzip trailer isize={self.gzip_trailer.get('isize')}, crc32={self.gzip_trailer.get('crc32')})"
+            print(f"Compressed unused bytes after deflate: {self.compressed_unused_len:,}{trailer}")
+            if self.footer:
+                # Surface any interesting strings in the footer
+                footer_strings = find_all_strings(self.footer_protobuf) if self.footer_protobuf else []
+                if footer_strings:
+                    preview = ', '.join(footer_strings[:5])
+                    more = f" (+{len(footer_strings) - 5} more)" if len(footer_strings) > 5 else ""
+                    print(f"Footer protobuf strings: {preview}{more}")
 
         # Game info
         print(f"\n{'='*40}")
@@ -599,14 +518,12 @@ class SGReplayParser:
         print(f"{'='*40}")
         print(f"Map: {self.map_name or 'Unknown'}")
 
-        # Duration
-        frames = [a['frame'] for a in self.actions if a['frame']]
-        if frames:
-            max_frame = max(frames)
-            duration_secs = max_frame / 1000  # milliseconds to seconds
+        # Duration (use sync time which excludes loading)
+        if self.max_sync_time > 0:
+            duration_secs = self.max_sync_time / FRAME_RATE_HZ
             mins = int(duration_secs // 60)
             secs = int(duration_secs % 60)
-            print(f"Duration: {mins}m {secs}s ({max_frame:,} ms)")
+            print(f"Duration: {mins}m {secs}s ({self.max_sync_time:,} ticks)")
 
         # Players
         print(f"\n{'='*40}")
@@ -635,7 +552,7 @@ class SGReplayParser:
         for pid in sorted(player_actions.keys()):
             frames = player_actions[pid]
             if len(frames) > 1:
-                duration_mins = (max(frames) - min(frames)) / 1000 / 60  # ms to minutes
+                duration_mins = (max(frames) - min(frames)) / FRAME_RATE_HZ / 60  # ticks to minutes
                 if duration_mins > 0:
                     apm = len(frames) / duration_mins
                     print(f"  {self.players[pid]:15}: {len(frames):5} actions, {apm:.0f} APM")
@@ -706,22 +623,743 @@ class SGReplayParser:
                     details += f" target={a['target_type_name']}"
             print(f"  [{a['time']}] {a['player']:15} {a['type']:15} {details}")
 
-    def to_json(self, include_actions: bool = False) -> dict:
+    def get_game_result(self) -> dict:
+        """Extract game result (winner/loser) from replay data.
+
+        Returns dict with:
+            - result: 'complete' if we have result data, 'unknown' otherwise
+            - winners: list of player names who won
+            - losers: list of player names who lost
+            - player_results: dict mapping player slot (from game) to 'win' or 'loss'
+
+        Detection method:
+        1. Primary: Use Field 31 message which indicates the losing team
+           (Field 31.1 contains slot of a player on losing team)
+        2. Fallback: Use footer field 3 markers (less reliable)
+        """
+        result = {
+            'result': 'unknown',
+            'winners': [],
+            'losers': [],
+            'player_results': {}
+        }
+
+        if not self.footer or '3' not in self.footer:
+            return result
+
+        players_data = self.footer['3']
+        if not isinstance(players_data, list):
+            return result
+
+        # Build player info: slot -> {name, team (f5)}
+        slot_to_info = {}
+        for p in players_data:
+            if not isinstance(p, dict):
+                continue
+            slot = p.get('1')
+            name = p.get('2')
+            team = p.get('5')  # field 5 is team (may be None in older replays)
+            if slot and isinstance(slot, int):
+                slot_to_info[slot] = {
+                    'name': name if isinstance(name, str) else f'Player {slot}',
+                    'team': team
+                }
+
+        # Check if team information is useful (at least 2 different teams)
+        teams = set(info['team'] for info in slot_to_info.values() if info['team'] is not None)
+        has_valid_teams = len(teams) >= 2
+
+        # Try to find Field 31 message to determine losing team
+        losing_team = None
+        if has_valid_teams:
+            for msg in self.messages:
+                content = get_nested(msg, 3, 1)
+                if content and isinstance(content, dict) and 31 in content:
+                    for entry in content[31]:
+                        if entry.get('t') == 'm':
+                            # Field 31.1 is slot of player on losing team
+                            loser_slot = get_nested(entry['v'], 1)
+                            if loser_slot and loser_slot in slot_to_info:
+                                losing_team = slot_to_info[loser_slot]['team']
+                            break
+                    if losing_team is not None:
+                        break
+
+        # Determine winners/losers based on team
+        if losing_team is not None:
+            for slot, info in slot_to_info.items():
+                name = info['name']
+                if info['team'] == losing_team:
+                    result['losers'].append(name)
+                    result['player_results'][str(slot)] = 'loss'
+                else:
+                    result['winners'].append(name)
+                    result['player_results'][str(slot)] = 'win'
+        else:
+            # Fallback: use footer field 3 markers
+            for p in players_data:
+                if not isinstance(p, dict):
+                    continue
+                slot = p.get('1')
+                name = p.get('2')
+                if not name or not isinstance(name, str):
+                    name = f'Player {slot}' if slot else 'Unknown'
+                # Field 3 = 1 indicates loss, absence indicates win
+                is_loser = p.get('3') == 1
+                if is_loser:
+                    result['losers'].append(name)
+                else:
+                    result['winners'].append(name)
+                if slot:
+                    result['player_results'][str(slot)] = 'loss' if is_loser else 'win'
+
+        # Map results to actual game slots by matching player names
+        # self.players maps game_slot -> name (may differ from footer slots)
+        name_to_result = {}
+        for slot, res in result['player_results'].items():
+            info = slot_to_info.get(int(slot))
+            if info:
+                name_to_result[info['name']] = res
+
+        result['player_results'] = {}
+        for game_slot, name in self.players.items():
+            if name in name_to_result:
+                result['player_results'][str(game_slot)] = name_to_result[name]
+
+        if result['winners'] or result['losers']:
+            result['result'] = 'complete'
+
+        return result
+
+    # Friendly names for common buildings/structures
+    BUILDING_FRIENDLY_NAMES = {
+        # Resource structures (all factions)
+        'MegaResourceA': 'Supply',
+        'ResourceB_LimitedAmount': 'Therium Deposit',
+        'ResourceB_Generator_2x2': 'Therium Extractor',
+        'ResourceB_Generator_3x3': 'Therium Extractor (Large)',
+        # Vanguard
+        'HQTier1': 'Command Post',
+        'HQTier2': 'Command Post T2',
+        'HQTier3': 'Command Post T3',
+        'VanguardExpansionHQ': 'Expansion HQ',
+        'MechBay': 'Mech Bay',
+        'HangarBay': 'Hangar Bay',
+        'AtlasBay': 'Atlas Bay',
+        'SentryPost': 'Sentry Post',
+        'ResearchLab': 'Research Lab',
+        # Celestial
+        'ArcshipTier1': 'Arcship',
+        'ArcshipTier2': 'Arcship T2',
+        'ArcshipTier3': 'Arcship T3',
+        'CelestialExpansionHQ': 'Expansion Arcship',
+        'CreationChamber': 'Creation Chamber',
+        'KriNexus': 'Kri Nexus',
+        'CabalNexus': 'Cabal Nexus',
+        'GuardianNexus': 'Guardian Nexus',
+        'CollectionArray': 'Collection Array',
+        'LinkNode': 'Link Node',
+        'ForceProjector': 'Force Projector',
+        'Mainframe': 'Mainframe',
+        'Bastion': 'Bastion',
+        'MorphCore': 'Morph Core',
+        'SparkNode': 'Spark Node',
+        'WarpNode': 'Warp Node',
+        # Infernal
+        'Stormgate': 'Stormgate',
+        'InfernalExpansionHQ': 'Expansion Stormgate',
+        'LesserShrine': 'Shrine (Lesser)',
+        'GreaterShrine': 'Shrine (Greater)',
+        'ElderShrine': 'Shrine (Elder)',
+        'IronVault': 'Iron Vault',
+        'FiendVault': 'Fiend Vault',
+        'BruteVault': 'Brute Vault',
+        'Conclave': 'Conclave',
+        'HexenConclave': 'Hexen Conclave',
+        'TributePyre': 'Tribute Pyre',
+        'RitualChamber': 'Ritual Chamber',
+        # Map objectives (should be filtered but just in case)
+        'StormgateObjectiveLv1': 'Stormgate Objective',
+    }
+
+    # Building base types that are actual structures (not units)
+    BUILDING_BASE_TYPES = {'UnitData', 'ResourceData', 'ResourceGeneratorData'}
+
+    # Mapping from Spawn ability names to building names for inferring implicit buildings
+    # When a player uses a Spawn ability but never built that building, we infer they had it
+    SPAWN_TO_BUILDING = {
+        # Vanguard
+        'BarracksSpawn': 'Barracks',
+        'MechBaySpawn': 'Mech Bay',
+        'HangarBaySpawn': 'Hangar Bay',
+        'AtlasBaySpawn': 'Atlas Bay',
+        'HQSpawn': 'Command Post',
+        'WarforgeSpawn': 'Warforge',
+        # Celestial
+        'CreationChamber_Spawn': 'Creation Chamber',
+        'Mainframe_Spawn': 'Mainframe',
+        'Arcship_Spawn': 'Arcship',
+        'MorphCore_Spawn': 'Morph Core',
+        # Infernal
+        'Shrine_Spawn': 'Shrine',
+        'Conclave_Spawn': 'Conclave',
+        'IronVault_Spawn': 'Iron Vault',
+        'TwilightSpire_Spawn': 'Twilight Spire',
+        'Stormgate_Spawn': 'Stormgate',
+    }
+
+    # Mapping from building names to their type IDs for inferred buildings
+    BUILDING_NAME_TO_ID = {
+        'Barracks': 597044510,
+        'Mech Bay': 3945975384,
+        'Command Post': 1393406673,
+        'Arcship': None,  # Starting building, no ID needed
+        'Stormgate': None,  # Starting building, no ID needed
+    }
+
+    def get_building_orders(self) -> dict:
+        """Extract building construction order per player.
+
+        Returns dict mapping player slot to list of building events, ordered by time.
+        Each event contains:
+            - frame: game tick when building was placed
+            - time: formatted time string (mm:ss)
+            - building_type: numeric ID of the building
+            - building_name: resolved name (if available)
+            - x, y: coordinates where building was placed (if available)
+
+        Note: Only includes actual structures, not unit spawns.
+        Deduplicates by position_index to count each building only once.
+        """
+        player_buildings = defaultdict(list)
+        # Track seen buildings by (player_id, position_index, building_type) to deduplicate
+        seen_buildings = set()
+
+        for a in self.actions:
+            # Only look at COMMAND actions with build_type
+            if a.get('type') != 'COMMAND':
+                continue
+            if not a.get('build_type'):
+                continue
+
+            pid = a.get('player_id')
+            if not pid or pid == 64 or not isinstance(pid, (int, str)):
+                continue
+
+            build_type = a.get('build_type')
+            raw_name = a.get('build_type_name') or str(build_type)
+
+            # Filter out non-building commands:
+            # 1. Attack commands (attackData) target units and should be excluded
+            ability_name = a.get('ability_name', '')
+            if ability_name and ability_name in ('attackData', 'CloneCreation', 'CallToFightBaseFaction'):
+                continue
+
+            # 2. Use buildings.json lookup to filter to only known buildings
+            # This excludes units like Scout, Fiend, Lancer, etc.
+            if BUILDING_LOOKUP:
+                building_entry = BUILDING_LOOKUP.get(build_type)
+                if not building_entry:
+                    continue  # Not a known building
+                # Use the building name from the lookup
+                raw_name = building_entry.get('id', raw_name)
+            elif a.get('x') is None and self.ability_lookup:
+                # Fallback: filter out non-building types when we have no coordinates
+                entry = self.ability_lookup.get(build_type)
+                if entry and entry.get('type') not in self.BUILDING_BASE_TYPES:
+                    continue
+
+            # Deduplicate by (player_id, position_index, building_type)
+            # position_index (field 4.2) uniquely identifies each building placement
+            # Multiple commands with same position_index are repeated clicks for same building
+            pos_index = a.get('ability_pos_index')
+            dedup_key = (pid, pos_index, build_type)
+            if dedup_key in seen_buildings:
+                continue
+            seen_buildings.add(dedup_key)
+
+            # Get friendly name if available
+            friendly_name = self.BUILDING_FRIENDLY_NAMES.get(raw_name, raw_name)
+
+            building = {
+                'frame': a.get('frame'),
+                'time': a.get('time'),
+                'building_type': build_type,
+                'building_name': friendly_name,
+            }
+
+            # Include coordinates if available
+            if a.get('x') is not None:
+                building['x'] = a['x']
+                building['y'] = a['y']
+
+            player_buildings[pid].append(building)
+
+        # Sort each player's buildings by frame
+        for pid in player_buildings:
+            player_buildings[pid].sort(key=lambda b: b['frame'] or 0)
+
+        # Infer implicit buildings from Spawn commands
+        # If a player uses a Spawn ability (e.g., BarracksSpawn) but never built that building,
+        # we infer they had it (either pre-built or the build command wasn't recorded)
+        inferred_buildings = defaultdict(list)
+
+        # First, collect all Spawn commands per player with their first occurrence time
+        player_spawns = defaultdict(dict)  # pid -> {building_name: first_frame}
+
+        for a in self.actions:
+            if a.get('type') != 'COMMAND':
+                continue
+
+            pid = a.get('player_id')
+            if not pid or pid == 64:
+                continue
+
+            # Check target_type_name for Spawn abilities
+            target_type = a.get('target_type_name', '')
+            if target_type in self.SPAWN_TO_BUILDING:
+                building_name = self.SPAWN_TO_BUILDING[target_type]
+                frame = a.get('frame') or 0
+
+                # Record first spawn time for this building
+                if building_name not in player_spawns[pid]:
+                    player_spawns[pid][building_name] = frame
+                else:
+                    player_spawns[pid][building_name] = min(player_spawns[pid][building_name], frame)
+
+        # Now check which spawns don't have corresponding builds
+        for pid, spawns in player_spawns.items():
+            # Get set of building names this player explicitly built
+            built_names = set()
+            for b in player_buildings.get(pid, []):
+                built_names.add(b['building_name'])
+                # Also add variants (e.g., "Shrine (Lesser)" matches "Shrine")
+                base_name = b['building_name'].split(' (')[0]
+                built_names.add(base_name)
+
+            for building_name, first_frame in spawns.items():
+                # Skip if player already built this building
+                if building_name in built_names:
+                    continue
+                # Skip starting buildings (Command Post, Arcship, Stormgate)
+                if building_name in ('Command Post', 'Arcship', 'Stormgate'):
+                    continue
+
+                # Check if this spawn occurred before any explicit build of this building
+                earliest_build_frame = None
+                for b in player_buildings.get(pid, []):
+                    if b['building_name'] == building_name or b['building_name'].startswith(building_name):
+                        earliest_build_frame = b['frame']
+                        break
+
+                # If spawn is before build (or no build exists), infer the building
+                if earliest_build_frame is None or first_frame < earliest_build_frame:
+                    # Calculate time string
+                    time_sec = first_frame / FRAME_RATE_HZ
+                    time_str = f"{int(time_sec // 60):02d}:{int(time_sec % 60):02d}"
+
+                    inferred = {
+                        'frame': first_frame,
+                        'time': time_str,
+                        'building_type': self.BUILDING_NAME_TO_ID.get(building_name),
+                        'building_name': f"{building_name} [Inferred]",
+                        'inferred': True,
+                    }
+                    inferred_buildings[pid].append(inferred)
+
+        # Merge inferred buildings with explicit buildings
+        result = {}
+        for pid in set(list(player_buildings.keys()) + list(inferred_buildings.keys())):
+            all_buildings = player_buildings.get(pid, []) + inferred_buildings.get(pid, [])
+            all_buildings.sort(key=lambda b: b['frame'] or 0)
+            result[pid] = all_buildings
+
+        return result
+
+    # Friendly names for upgrades/research
+    UPGRADE_FRIENDLY_NAMES = {
+        'MorphToGreaterShrine': 'Upgrade to Greater Shrine',
+        'MorphToElderShrine': 'Upgrade to Elder Shrine',
+        'MorphToHQTier2': 'Upgrade to HQ Tier 2',
+        'MorphToHQTier3': 'Upgrade to HQ Tier 3',
+        'Hellforge_Research': 'Hellforge Research',
+        'MunitionsFactoryResearch': 'Munitions Factory Research',
+        'ResearchLabResearch': 'Research Lab Research',
+    }
+
+    # Keywords that indicate an upgrade/research ability
+    UPGRADE_KEYWORDS = ['Research', 'Upgrade', 'MorphTo', 'Tier2', 'Tier3']
+
+    def get_player_upgrades(self) -> dict:
+        """Extract upgrades/research per player.
+
+        Returns dict mapping player slot to list of upgrade events, ordered by time.
+        Each event contains:
+            - frame: game tick when upgrade was started
+            - time: formatted time string (mm:ss)
+            - upgrade_id: numeric ability ID
+            - upgrade_name: resolved name
+        """
+        player_upgrades = defaultdict(list)
+        # Track seen upgrades by (player_id, ability_id) to deduplicate
+        seen_upgrades = set()
+
+        for a in self.actions:
+            if a.get('type') != 'COMMAND':
+                continue
+
+            pid = a.get('player_id')
+            if not pid or pid == 64 or not isinstance(pid, (int, str)):
+                continue
+
+            ability_name = a.get('ability_name') or ''
+            ability_id = a.get('ability_id')
+
+            # Check if this is an upgrade ability (but not a Stormgate reward)
+            is_upgrade = any(kw in ability_name for kw in self.UPGRADE_KEYWORDS)
+            is_stormgate = ability_name.startswith('StormgateAbility')
+            if not is_upgrade or is_stormgate:
+                continue
+
+            # Deduplicate by (player_id, ability_id)
+            dedup_key = (pid, ability_id)
+            if dedup_key in seen_upgrades:
+                continue
+            seen_upgrades.add(dedup_key)
+
+            # Get friendly name
+            friendly_name = self.UPGRADE_FRIENDLY_NAMES.get(ability_name, ability_name)
+            # Clean up the name if no friendly version
+            if friendly_name == ability_name:
+                friendly_name = ability_name.replace('_', ' ').replace('MorphTo', 'Upgrade to ')
+
+            upgrade = {
+                'frame': a.get('frame'),
+                'time': a.get('time'),
+                'upgrade_id': ability_id,
+                'upgrade_name': friendly_name,
+            }
+
+            player_upgrades[pid].append(upgrade)
+
+        # Sort each player's upgrades by frame
+        result = {}
+        for pid, upgrades in player_upgrades.items():
+            upgrades.sort(key=lambda u: u['frame'] or 0)
+            result[pid] = upgrades
+
+        return result
+
+    # Friendly names for Stormgate rewards
+    STORMGATE_REWARD_NAMES = {
+        'StormgateAbilityCreateTier1Healer': 'Tier 1: Healer',
+        'StormgateAbilityCreateTier1Ooze': 'Tier 1: Ooze',
+        'StormgateAbilityCreateTier1Frost': 'Tier 1: Frost',
+        'StormgateAbilityCreateTier2Exploder': 'Tier 2: Exploder',
+        'StormgateAbilityCreateTier2Fortress': 'Tier 2: Fortress',
+        'StormgateAbilityCreateTier2Wisp': 'Tier 2: Wisp',
+        'StormgateAbilityCreateTier3ShadowDemon': 'Tier 3: Shadow Demon',
+        'StormgateAbilityCreateTier3Quake': 'Tier 3: Quake',
+    }
+
+    def get_stormgate_rewards(self) -> dict:
+        """Extract Stormgate rewards chosen by each player.
+
+        Returns dict mapping player slot to list of Stormgate reward events, ordered by time.
+        Each event contains:
+            - frame: game tick when reward was chosen
+            - time: formatted time string (mm:ss)
+            - reward_id: numeric ability ID
+            - reward_name: resolved friendly name
+        """
+        player_rewards = defaultdict(list)
+        # Track seen rewards by (player_id, ability_id) to deduplicate
+        seen_rewards = set()
+
+        for a in self.actions:
+            if a.get('type') != 'COMMAND':
+                continue
+
+            pid = a.get('player_id')
+            if not pid or pid == 64 or not isinstance(pid, (int, str)):
+                continue
+
+            ability_name = a.get('ability_name') or ''
+            ability_id = a.get('ability_id')
+
+            # Check if this is a Stormgate reward ability
+            if not ability_name.startswith('StormgateAbility'):
+                continue
+
+            # Deduplicate by (player_id, ability_id)
+            dedup_key = (pid, ability_id)
+            if dedup_key in seen_rewards:
+                continue
+            seen_rewards.add(dedup_key)
+
+            # Get friendly name
+            friendly_name = self.STORMGATE_REWARD_NAMES.get(ability_name)
+            if not friendly_name:
+                # Parse from ability name: StormgateAbilityCreateTierXName -> Tier X: Name
+                clean = ability_name.replace('StormgateAbilityCreate', '')
+                # e.g. "Tier1Healer" -> "Tier 1: Healer"
+                import re
+                match = re.match(r'Tier(\d+)(.+)', clean)
+                if match:
+                    tier, name = match.groups()
+                    friendly_name = f'Tier {tier}: {name}'
+                else:
+                    friendly_name = clean
+
+            reward = {
+                'frame': a.get('frame'),
+                'time': a.get('time'),
+                'reward_id': ability_id,
+                'reward_name': friendly_name,
+            }
+
+            player_rewards[pid].append(reward)
+
+        # Sort each player's rewards by frame
+        result = {}
+        for pid, rewards in player_rewards.items():
+            rewards.sort(key=lambda r: r['frame'] or 0)
+            result[pid] = rewards
+
+        return result
+
+    # Map spawn ability names to friendly building/unit source names
+    SPAWN_FRIENDLY_NAMES = {
+        # Vanguard
+        'HQSpawn': 'Command Post',
+        'BarracksSpawn': 'Barracks',
+        'MechBaySpawn': 'Mech Bay',
+        'HangarBaySpawn': 'Hangar Bay',
+        'AtlasBaySpawn': 'Atlas Bay',
+        'SentryPostSpawn': 'Sentry Post',
+        # Celestial
+        'Arcship_Spawn': 'Arcship',
+        'CreationChamber_Spawn': 'Creation Chamber',
+        'KriNexus_Spawn': 'Kri Nexus',
+        'CabalNexus_Spawn': 'Cabal Nexus',
+        'GuardianNexus_Spawn': 'Guardian Nexus',
+        # Infernal
+        'Shrine_Spawn': 'Shrine',
+        'IronVault_Spawn': 'Iron Vault',
+        'Conclave_Spawn': 'Conclave',
+        'FiendVault_Spawn': 'Fiend Vault',
+        'BruteVault_Spawn': 'Brute Vault',
+        'HexenConclave_Spawn': 'Hexen Conclave',
+    }
+
+    def get_unit_production(self) -> dict:
+        """Extract unit production per player.
+
+        Note: Replay format only records spawn ability (e.g., 'Shrine_Spawn'),
+        not the specific unit type trained. So we track production by building.
+
+        Returns dict mapping player slot to list of production events, ordered by time.
+        Each event contains:
+            - frame: game tick when production was queued
+            - time: formatted time string (mm:ss)
+            - ability_id: spawn ability ID
+            - building: building/source name (e.g., 'Shrine', 'Barracks')
+        """
+        player_production = defaultdict(list)
+
+        for a in self.actions:
+            if a.get('type') != 'COMMAND':
+                continue
+
+            pid = a.get('player_id')
+            if not pid or pid == 64 or not isinstance(pid, (int, str)):
+                continue
+
+            ability_name = a.get('ability_name') or ''
+
+            # Check if this is a spawn ability
+            if 'Spawn' not in ability_name and 'spawn' not in ability_name:
+                continue
+
+            # Get friendly building name
+            building_name = self.SPAWN_FRIENDLY_NAMES.get(ability_name)
+            if not building_name:
+                # Try to extract building name from ability (e.g., "Barracks_Spawn" -> "Barracks")
+                building_name = ability_name.replace('_Spawn', '').replace('Spawn', '').replace('_', ' ')
+                if not building_name:
+                    building_name = ability_name
+
+            production = {
+                'frame': a.get('frame'),
+                'time': a.get('time'),
+                'ability_id': a.get('ability_id'),
+                'building': building_name,
+            }
+
+            player_production[pid].append(production)
+
+        # Sort each player's production by frame
+        result = {}
+        for pid, productions in player_production.items():
+            productions.sort(key=lambda p: p['frame'] or 0)
+            result[pid] = productions
+
+        return result
+
+    def get_production_summary(self) -> dict:
+        """Get summarized unit production counts per player per building.
+
+        Returns dict mapping player slot to dict of building -> count.
+        """
+        production = self.get_unit_production()
+        result = {}
+
+        for pid, productions in production.items():
+            building_counts = defaultdict(int)
+            for p in productions:
+                building_counts[p['building']] += 1
+            result[pid] = dict(building_counts)
+
+        return result
+
+    def get_player_factions(self) -> dict:
+        """Detect player factions from abilities/buildings used.
+
+        Detection is based on the first faction-specific ability/building each player uses.
+        The main production buildings are definitive: Arcship=Celestial, Shrine=Infernal, Barracks/HQ=Vanguard.
+
+        Returns dict mapping player slot (int) to faction name.
+        Factions: 'Vanguard', 'Celestial', 'Infernal', or 'Unknown'
+        """
+        # Definitive faction markers (first match wins)
+        VANGUARD_MARKERS = ['Barracks', 'MechBay', 'HQSpawn', 'HQTier', 'Bob_', 'Vulcan', 'Hedgehog', 'Atlas', 'Hornet', 'Helicarrier']
+        CELESTIAL_MARKERS = ['Arcship', 'CreationChamber', 'Kri', 'Prism', 'Animancer', 'Saber', 'Vector', 'Celestial_', 'PowerSurge']
+        INFERNAL_MARKERS = ['Shrine', 'IronVault', 'Conclave', 'Imp_', 'Fiend', 'Brute', 'Hexen', 'Spriggan', 'SummonEffigy', 'Hellborne']
+
+        factions = {}
+
+        for a in self.actions:
+            pid = a.get('player_id')
+            if not pid or pid == 64 or not isinstance(pid, (int, str)) or pid in factions:
+                continue  # Skip system actions and already-detected players
+
+            # Check ability_name and target_type_name
+            for name in [a.get('ability_name'), a.get('target_type_name')]:
+                if not name:
+                    continue
+
+                # Check for faction markers
+                for marker in VANGUARD_MARKERS:
+                    if marker in name:
+                        factions[pid] = 'Vanguard'
+                        break
+                if pid in factions:
+                    break
+
+                for marker in CELESTIAL_MARKERS:
+                    if marker in name:
+                        factions[pid] = 'Celestial'
+                        break
+                if pid in factions:
+                    break
+
+                for marker in INFERNAL_MARKERS:
+                    if marker in name:
+                        factions[pid] = 'Infernal'
+                        break
+                if pid in factions:
+                    break
+
+        # Fill in Unknown for players without detected faction
+        for pid in self.players.keys():
+            pid_int = pid if isinstance(pid, int) else int(pid)
+            if pid_int not in factions:
+                factions[pid_int] = 'Unknown'
+
+        return factions
+
+    def get_player_teams(self) -> dict:
+        """Get team assignment for each player.
+
+        Returns dict mapping player_id (int) to team number (int).
+        Team info comes from footer, mapped via player names.
+        """
+        # Build name -> team mapping from footer
+        name_to_team = {}
+        if self.footer and '3' in self.footer:
+            for p in self.footer['3']:
+                if not isinstance(p, dict):
+                    print(f"[DEBUG] Unexpected non-dict in footer['3']: {type(p).__name__} = {repr(p)}")
+                    continue
+                name = p.get('2')
+                team = p.get('5')
+                if name and team:
+                    name_to_team[name] = team
+
+        # Map player_id to team using our players dict
+        player_teams = {}
+        for pid, name in self.players.items():
+            team = name_to_team.get(name)
+            if team:
+                player_teams[pid] = team
+
+        return player_teams
+
+    def to_json(self, include_actions: bool = False, *, include_messages: bool = False) -> dict:
         """Export as JSON-serializable dict"""
+        game_result = self.get_game_result()
+        player_factions = self.get_player_factions()
+        building_orders = self.get_building_orders()
+        player_upgrades = self.get_player_upgrades()
+        stormgate_rewards = self.get_stormgate_rewards()
+        player_teams = self.get_player_teams()
         result = {
             'file': os.path.basename(self.filepath),
             'header': self.header,
             'map': self.map_name,
             'players': self.players,
+            # Player teams (from footer)
+            'player_teams': player_teams,
+            # Player factions (detected from abilities used)
+            'player_factions': player_factions,
+            # Game result (winner/loser)
+            'game_result': game_result,
+            # Building construction order per player
+            'building_orders': building_orders,
+            # Upgrades/research per player
+            'player_upgrades': player_upgrades,
+            # Stormgate rewards chosen per player
+            'stormgate_rewards': stormgate_rewards,
+            # Unit production per player (summarized by building)
+            'unit_production': self.get_production_summary(),
+            # Detailed unit production timeline
+            'unit_production_timeline': self.get_unit_production(),
+            'raw_size_bytes': len(self.raw_data) if self.raw_data is not None else 0,
             'total_messages': len(self.messages),
             'total_actions': len(self.actions),
             'action_types': dict(Counter(a['type'] for a in self.actions)),
             'chat': self.chat,
-            'duration_seconds': max((a['frame'] or 0) for a in self.actions) / 1000 if self.actions else 0,
+            'duration_seconds': self.max_sync_time / FRAME_RATE_HZ if self.max_sync_time > 0 else 0,
             'target_type_stats': dict(self.target_type_stats.most_common()),
             'ability_stats': dict(self.ability_id_stats.most_common()),
             'entities': self.entity_tracker.to_dict(),
+            # Compression/footer metadata (helps verify completeness and captures extra replay metadata)
+            'gzip_header_len': self.gzip_header_len,
+            'gzip_trailer': self.gzip_trailer,
+            'compressed_unused_bytes': self.compressed_unused_len,
+            'footer': self.footer,
         }
+
+        if include_messages:
+            # Full decoded protobuf message stream (can be large on real replays)
+            result['messages'] = [
+                simplify_protobuf(
+                    m,
+                    include_bytes=self.include_bytes,
+                    bytes_hex_limit=self.bytes_hex_limit,
+                )
+                for m in self.messages
+            ]
 
         if include_actions:
             # Clean up actions for JSON serialization
@@ -763,6 +1401,17 @@ class SGReplayParser:
                     clean_a['target_f5'] = a['target_f5']
                 if a.get('target_f6'):
                     clean_a['target_f6'] = a['target_f6']
+                # Include build/spawn info
+                if a.get('build_type'):
+                    clean_a['build_type'] = a['build_type']
+                if a.get('build_type_name'):
+                    clean_a['build_type_name'] = a['build_type_name']
+                if a.get('ability_pos_index') is not None:
+                    clean_a['ability_pos_index'] = a['ability_pos_index']
+                if a.get('ability_f5') is not None:
+                    clean_a['ability_f5'] = a['ability_f5']
+                if a.get('ability_f6') is not None:
+                    clean_a['ability_f6'] = a['ability_f6']
                 # Include sync data
                 for key in a:
                     if key.startswith('sync_'):
@@ -775,9 +1424,10 @@ class SGReplayParser:
 
         return result
 
-    def export_actions_json(self, output_path: str):
+    def export_actions_json(self, output_path: str, *, include_messages: bool = False):
         """Export all actions to a JSON file"""
-        data = self.to_json(include_actions=True)
+        # NOTE: include_messages is controlled by CLI; default is False to keep files small.
+        data = self.to_json(include_actions=True, include_messages=include_messages)
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False, default=str)
         return output_path
@@ -811,6 +1461,12 @@ Note: Resources are not stored in replay files. Replays are command-based
                            help='Suppress console output (only export JSON)')
     arg_parser.add_argument('--no-lookup', action='store_true',
                            help='Disable ability name lookup')
+    arg_parser.add_argument('--include-bytes', action='store_true',
+                           help='Include a truncated hex preview for unknown byte blobs in exported raw protobuf')
+    arg_parser.add_argument('--bytes-hex-limit', type=int, default=64,
+                           help='Max bytes to include (as hex) per blob when --include-bytes is set (default: 64)')
+    arg_parser.add_argument('--include-messages', action='store_true',
+                           help='Include the full decoded protobuf message stream in exported JSON (can be large)')
 
     args = arg_parser.parse_args()
 
@@ -829,7 +1485,12 @@ Note: Resources are not stored in replay files. Replays are command-based
             if not args.quiet:
                 print(f"Warning: Could not load ability lookup: {e}")
 
-    parser = SGReplayParser(args.replay, ability_lookup=ability_lookup)
+    parser = SGReplayParser(
+        args.replay,
+        ability_lookup=ability_lookup,
+        include_bytes=args.include_bytes,
+        bytes_hex_limit=args.bytes_hex_limit,
+    )
     parser.load().parse()
 
     if not args.quiet:
@@ -838,13 +1499,15 @@ Note: Resources are not stored in replay files. Replays are command-based
     # Export JSON
     if args.json:
         json_path = args.output or args.replay.rsplit('.', 1)[0] + '_actions.json'
-        parser.export_actions_json(json_path)
+        data = parser.to_json(include_actions=True, include_messages=args.include_messages)
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
         print(f"\nExported {len(parser.actions):,} actions to: {json_path}")
     else:
         # Just export summary
         json_path = args.replay.rsplit('.', 1)[0] + '_summary.json'
         with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(parser.to_json(), f, indent=2, default=str)
+            json.dump(parser.to_json(include_messages=args.include_messages), f, indent=2, default=str)
         if not args.quiet:
             print(f"\nExported summary to: {json_path}")
 

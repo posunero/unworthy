@@ -1,0 +1,2218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stormgate Replay Stats</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0c0a;
+            color: #f0e6dc;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #d4a574;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        select, button, input[type="file"] {
+            padding: 10px 15px;
+            border: 1px solid #3d3028;
+            border-radius: 5px;
+            background: #1a1512;
+            color: #f0e6dc;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        select {
+            flex: 1;
+            min-width: 200px;
+        }
+        button {
+            background: #3b82f6;
+            color: #fff;
+            font-weight: bold;
+            border: none;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:disabled {
+            background: #3d3028;
+            color: #6b5b4f;
+            cursor: not-allowed;
+        }
+        .upload-label {
+            padding: 10px 15px;
+            background: #2a2018;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .upload-label:hover {
+            background: #3d3028;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .error {
+            background: #ff4444;
+            color: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8b7355;
+        }
+        .replay-info {
+            display: none;
+        }
+        .replay-info.visible {
+            display: block;
+        }
+        .card {
+            background: #1a1512;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #2a2018;
+        }
+        .card h2 {
+            color: #d4a574;
+            margin-bottom: 15px;
+            font-size: 18px;
+            border-bottom: 1px solid #3d3028;
+            padding-bottom: 10px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .stat {
+            background: #0f0c0a;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #2a2018;
+        }
+        .stat-label {
+            color: #8b7355;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3b82f6;
+        }
+        .stat-value.small {
+            font-size: 16px;
+        }
+        .players {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .player {
+            background: #0f0c0a;
+            padding: 15px 20px;
+            border-radius: 5px;
+            flex: 1;
+            min-width: 200px;
+            border: 1px solid #2a2018;
+        }
+        .player-slot {
+            color: #8b7355;
+            font-size: 12px;
+        }
+        .player-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        .chat-log {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #0f0c0a;
+            border-radius: 5px;
+            padding: 10px;
+            border: 1px solid #2a2018;
+        }
+        .chat-message {
+            padding: 8px 10px;
+            border-bottom: 1px solid #2a2018;
+        }
+        .chat-message:last-child {
+            border-bottom: none;
+        }
+        .chat-time {
+            color: #8b7355;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+        .chat-player {
+            color: #d4a574;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .chat-text {
+            color: #f0e6dc;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #2a2018;
+        }
+        th {
+            color: #8b7355;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .count {
+            color: #3b82f6;
+            font-weight: bold;
+        }
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .tab {
+            padding: 8px 16px;
+            background: #0f0c0a;
+            border: none;
+            border-radius: 5px 5px 0 0;
+            color: #8b7355;
+            cursor: pointer;
+        }
+        .tab.active {
+            background: #2a2018;
+            color: #d4a574;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .entity-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .entity {
+            background: #0f0c0a;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 8px;
+            border: 1px solid #2a2018;
+        }
+        .entity-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        .entity-name {
+            font-weight: bold;
+            color: #3b82f6;
+        }
+        .entity-owner {
+            color: #8b7355;
+        }
+        .entity-actions {
+            font-size: 12px;
+            color: #6b5b4f;
+        }
+        .timeline-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .timeline-controls select {
+            padding: 8px 12px;
+            background: #0f0c0a;
+            border: 1px solid #3d3028;
+            border-radius: 5px;
+            color: #f0e6dc;
+            font-size: 14px;
+        }
+        #timelineStats {
+            color: #8b7355;
+            font-size: 13px;
+            margin-left: auto;
+        }
+        .timeline {
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            background: #0f0c0a;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #2a2018;
+        }
+        .timeline-pagination {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            align-items: center;
+            justify-content: center;
+        }
+        .timeline-pagination button {
+            padding: 8px 16px;
+            background: #2a2018;
+            border: none;
+            border-radius: 5px;
+            color: #f0e6dc;
+            cursor: pointer;
+        }
+        .timeline-pagination button:hover:not(:disabled) {
+            background: #3d3028;
+        }
+        .timeline-pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        #pageInfo {
+            color: #8b7355;
+        }
+        .timeline-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #2a2018;
+        }
+        .timeline-time {
+            color: #8b7355;
+            display: inline-block;
+            width: 60px;
+        }
+        .timeline-player {
+            color: #d4a574;
+            display: inline-block;
+            width: 120px;
+        }
+        .timeline-action {
+            color: #a89888;
+        }
+        .chart-container {
+            background: #0f0c0a;
+            border-radius: 5px;
+            padding: 15px;
+            border: 1px solid #2a2018;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .player-apm {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #8b7355;
+        }
+        .player-apm strong {
+            color: #3b82f6;
+            font-size: 18px;
+        }
+        .player-result {
+            margin-top: 8px;
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .player-result.win {
+            color: #22c55e;
+        }
+        .player-result.loss {
+            color: #ef4444;
+        }
+        .player.winner {
+            border-color: #22c55e;
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
+        }
+        .player.loser {
+            border-color: #ef4444;
+            opacity: 0.8;
+        }
+        #winner {
+            color: #22c55e;
+        }
+        .player-faction {
+            font-size: 13px;
+            font-weight: bold;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .player-faction.vanguard {
+            color: #3b82f6;
+        }
+        .player-faction.celestial {
+            color: #a855f7;
+        }
+        .player-faction.infernal {
+            color: #f97316;
+        }
+        .player-faction.unknown {
+            color: #6b7280;
+        }
+        .building-order {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .building-item {
+            background: #2a2018;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .building-time {
+            color: #8b7355;
+            font-size: 11px;
+        }
+        .building-name {
+            color: #f0e6dc;
+        }
+        .building-item.inferred {
+            background: #1a2518;
+            border-left: 2px solid #6b8b6b;
+        }
+        .building-item.inferred .building-name {
+            color: #a8c8a8;
+            font-style: italic;
+        }
+        .building-item.stormgate-reward {
+            background: #1a1828;
+            border-left: 2px solid #8b6bb8;
+        }
+        .building-item.stormgate-reward .building-name {
+            color: #c8a8e8;
+        }
+        .team-group {
+            margin-bottom: 20px;
+        }
+        .team-header {
+            color: #d4a574;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #3a3028;
+        }
+        .team-header.winner {
+            color: #7cb87c;
+        }
+        .team-header.loser {
+            color: #b87c7c;
+        }
+        /* View toggle */
+        .view-toggle {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+        }
+        .view-toggle button {
+            padding: 10px 20px;
+            background: #1a1512;
+            border: 1px solid #3d3028;
+            color: #8b7355;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        .view-toggle button.active {
+            background: #3b82f6;
+            color: #fff;
+            border-color: #3b82f6;
+        }
+        /* Summary styles */
+        .summary-container {
+            display: none;
+        }
+        .summary-container.visible {
+            display: block;
+        }
+        .summary-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .summary-header h2 {
+            color: #d4a574;
+            margin: 0;
+        }
+        .summary-filters {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .summary-filters select {
+            padding: 8px 12px;
+            background: #1a1512;
+            border: 1px solid #3d3028;
+            border-radius: 5px;
+            color: #f0e6dc;
+        }
+        .summary-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .summary-stat {
+            background: #1a1512;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #2a2018;
+        }
+        .summary-stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #3b82f6;
+        }
+        .summary-stat-value.win { color: #22c55e; }
+        .summary-stat-value.loss { color: #ef4444; }
+        .summary-stat-label {
+            font-size: 12px;
+            color: #8b7355;
+            text-transform: uppercase;
+            margin-top: 5px;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #0f0c0a;
+            border-radius: 5px;
+            margin-bottom: 8px;
+            border: 1px solid #2a2018;
+        }
+        .stat-row-name {
+            font-weight: bold;
+            color: #f0e6dc;
+        }
+        .stat-row-details {
+            display: flex;
+            gap: 15px;
+            font-size: 13px;
+        }
+        .stat-row-games {
+            color: #8b7355;
+        }
+        .stat-row-winrate {
+            font-weight: bold;
+        }
+        .winrate-high { color: #22c55e; }
+        .winrate-mid { color: #f59e0b; }
+        .winrate-low { color: #ef4444; }
+        .matchup-section {
+            margin-bottom: 20px;
+        }
+        .matchup-title {
+            color: #d4a574;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #3a3028;
+        }
+        .building-stat {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #2a2018;
+            padding: 6px 12px;
+            border-radius: 4px;
+            margin: 4px;
+            font-size: 13px;
+        }
+        .building-stat-name {
+            color: #f0e6dc;
+        }
+        .building-stat-pct {
+            color: #3b82f6;
+            font-weight: bold;
+        }
+        .building-stat-wr {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .two-column {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        .building-orders-section {
+            margin-top: 15px;
+        }
+        .building-orders-section h3 {
+            color: #d4a574;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .player-buildings {
+            background: #0f0c0a;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            border: 1px solid #2a2018;
+        }
+        .player-buildings-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .player-buildings-name {
+            font-weight: bold;
+            color: #d4a574;
+        }
+        .player-buildings-count {
+            color: #8b7355;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Stormgate Replay Stats</h1>
+
+        <!-- View Toggle -->
+        <div class="view-toggle">
+            <button id="summaryViewBtn" class="active">Summary</button>
+            <button id="replayViewBtn">Single Replay</button>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+        <div id="loading" class="loading" style="display: none;">Loading...</div>
+
+        <!-- Summary View -->
+        <div id="summaryContainer" class="summary-container visible">
+            <div class="summary-header">
+                <h2>Player Stats Summary</h2>
+                <div class="summary-filters">
+                    <label style="color: #8b7355;">Directory:</label>
+                    <select id="dirFilter">
+                        <option value="">All Directories</option>
+                    </select>
+                    <label style="color: #8b7355;">Player:</label>
+                    <select id="playerSelectFilter">
+                        <option value="">Auto-detect</option>
+                    </select>
+                    <label style="color: #8b7355;">Patch:</label>
+                    <select id="changelistFilter">
+                        <option value="">All Patches</option>
+                    </select>
+                    <button id="refreshSummary" style="padding: 8px 15px;">Refresh</button>
+                </div>
+            </div>
+
+            <!-- Overview Stats -->
+            <div class="summary-overview" id="summaryOverview"></div>
+
+            <!-- Race Stats -->
+            <div class="card">
+                <h2>Race Statistics</h2>
+                <div id="raceStats"></div>
+            </div>
+
+            <!-- Matchup Stats -->
+            <div class="card">
+                <h2>Matchup Statistics</h2>
+                <div id="matchupStats"></div>
+            </div>
+
+            <!-- First Buildings by Matchup -->
+            <div class="card">
+                <h2>Opening Buildings by Matchup</h2>
+                <div id="buildingsByMatchup"></div>
+            </div>
+
+            <!-- Opening Sequences -->
+            <div class="card">
+                <h2>Opening Sequences (First 3 Buildings)</h2>
+                <div id="openingSequences"></div>
+            </div>
+
+            <!-- First Stormgate Reward -->
+            <div class="card">
+                <h2>First Stormgate Reward</h2>
+                <div id="firstRewardStats"></div>
+            </div>
+
+            <!-- Two Column Section -->
+            <div class="two-column">
+                <!-- Map Stats -->
+                <div class="card">
+                    <h2>Map Statistics</h2>
+                    <div id="mapStats"></div>
+                </div>
+
+                <!-- Teammate Stats -->
+                <div class="card">
+                    <h2>Teammate Statistics</h2>
+                    <div id="teammateStats"></div>
+                </div>
+            </div>
+
+            <!-- Game Length Stats -->
+            <div class="card">
+                <h2>Game Length Statistics</h2>
+                <div id="gameLengthStats"></div>
+            </div>
+
+            <!-- Changelist Breakdown -->
+            <div class="card">
+                <h2>Patch Breakdown</h2>
+                <div id="changelistStats"></div>
+            </div>
+        </div>
+
+        <!-- Single Replay View -->
+        <div id="replayViewContainer" style="display: none;">
+            <div class="controls">
+                <select id="replaySelect">
+                    <option value="">-- Select a replay --</option>
+                </select>
+                <button id="loadBtn" disabled>Load Replay</button>
+                <label class="upload-label">
+                    Upload .SGReplay
+                    <input type="file" id="fileInput" accept=".SGReplay">
+                </label>
+            </div>
+
+        <div id="replayInfo" class="replay-info">
+            <!-- Game Overview -->
+            <div class="card">
+                <h2>Game Overview</h2>
+                <div class="grid">
+                    <div class="stat">
+                        <div class="stat-label">Map</div>
+                        <div class="stat-value small" id="mapName">-</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Duration</div>
+                        <div class="stat-value" id="duration">-</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Actions</div>
+                        <div class="stat-value" id="actionCount">-</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Changelist</div>
+                        <div class="stat-value small" id="changelist">-</div>
+                    </div>
+                    <div class="stat" id="winnerStat" style="display: none;">
+                        <div class="stat-label">Winner</div>
+                        <div class="stat-value small" id="winner">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Players -->
+            <div class="card">
+                <h2>Players</h2>
+                <div class="players" id="playerList"></div>
+            </div>
+
+            <!-- APM Over Time -->
+            <div class="card">
+                <h2>APM Over Time</h2>
+                <div class="chart-container">
+                    <div id="apmChart" style="height: 300px;"></div>
+                </div>
+            </div>
+
+            <!-- Production Timeline -->
+            <div class="card">
+                <h2>Production Timeline</h2>
+                <div class="chart-container">
+                    <div id="spawnChart" style="height: 200px;"></div>
+                </div>
+            </div>
+
+            <!-- Building Orders -->
+            <div class="card">
+                <h2>Building Order</h2>
+                <div id="buildingOrders"></div>
+            </div>
+
+            <!-- Upgrades -->
+            <div class="card">
+                <h2>Upgrades & Research</h2>
+                <div id="playerUpgrades"></div>
+            </div>
+
+            <!-- Stormgate Rewards -->
+            <div class="card">
+                <h2>Stormgate Rewards</h2>
+                <div id="stormgateRewards"></div>
+            </div>
+
+            <!-- Unit Production -->
+            <div class="card">
+                <h2>Unit Production</h2>
+                <div id="unitProduction"></div>
+            </div>
+
+            <!-- Chat -->
+            <div class="card">
+                <h2>Chat Log</h2>
+                <div class="chat-log" id="chatLog">
+                    <div class="chat-message" style="color: #666;">No chat messages</div>
+                </div>
+            </div>
+
+            <!-- Details Tabs -->
+            <div class="card">
+                <div class="tabs">
+                    <button class="tab active" data-tab="actions">Action Types</button>
+                    <button class="tab" data-tab="abilities">Abilities</button>
+                    <button class="tab" data-tab="entities">Entities</button>
+                    <button class="tab" data-tab="timeline">Timeline</button>
+                </div>
+
+                <div id="actions" class="tab-content active">
+                    <table id="actionTable">
+                        <thead>
+                            <tr><th>Action Type</th><th>Count</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <div id="abilities" class="tab-content">
+                    <table id="abilityTable">
+                        <thead>
+                            <tr><th>Ability</th><th>Uses</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <div id="entities" class="tab-content">
+                    <div class="entity-list" id="entityList"></div>
+                </div>
+
+                <div id="timeline" class="tab-content">
+                    <div class="timeline-controls">
+                        <select id="playerFilter">
+                            <option value="">All Players</option>
+                        </select>
+                        <select id="actionTypeFilter">
+                            <option value="">All Action Types</option>
+                        </select>
+                        <span id="timelineStats"></span>
+                    </div>
+                    <div class="timeline" id="timelineList"></div>
+                    <div class="timeline-pagination">
+                        <button id="prevPage" disabled>Previous</button>
+                        <span id="pageInfo">Page 1</span>
+                        <button id="nextPage">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div> <!-- End replayViewContainer -->
+    </div>
+
+    <script>
+        const replaySelect = document.getElementById('replaySelect');
+        const loadBtn = document.getElementById('loadBtn');
+        const fileInput = document.getElementById('fileInput');
+        const errorDiv = document.getElementById('error');
+        const loadingDiv = document.getElementById('loading');
+        const replayInfo = document.getElementById('replayInfo');
+
+        // Timeline state
+        let allActions = [];
+        let filteredActions = [];
+        let currentPage = 0;
+        const PAGE_SIZE = 100;
+        let currentPlayers = {};
+
+        // ECharts instances
+        let apmChartInstance = null;
+        let spawnChartInstance = null;
+
+        const playerColors = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899'];
+        // Team colors: Team 1 = blue-ish, Team 2 = red-ish
+        const teamColors = { 1: '#3b82f6', 2: '#ef4444' };
+
+        // View elements
+        const summaryViewBtn = document.getElementById('summaryViewBtn');
+        const replayViewBtn = document.getElementById('replayViewBtn');
+        const summaryContainer = document.getElementById('summaryContainer');
+        const replayViewContainer = document.getElementById('replayViewContainer');
+        const changelistFilter = document.getElementById('changelistFilter');
+        const playerSelectFilter = document.getElementById('playerSelectFilter');
+        const dirFilter = document.getElementById('dirFilter');
+        const refreshSummaryBtn = document.getElementById('refreshSummary');
+
+        // View switching
+        summaryViewBtn.addEventListener('click', () => {
+            summaryViewBtn.classList.add('active');
+            replayViewBtn.classList.remove('active');
+            summaryContainer.classList.add('visible');
+            replayViewContainer.style.display = 'none';
+        });
+
+        replayViewBtn.addEventListener('click', () => {
+            replayViewBtn.classList.add('active');
+            summaryViewBtn.classList.remove('active');
+            replayViewContainer.style.display = 'block';
+            summaryContainer.classList.remove('visible');
+        });
+
+        // Load summary data
+        async function loadSummary(options = {}) {
+            showLoading(true);
+            hideError();
+
+            try {
+                const params = new URLSearchParams();
+                if (options.changelist) params.set('changelist', options.changelist);
+                if (options.player) params.set('player', options.player);
+                if (options.dir) params.set('dir', options.dir);
+
+                let url = '/api/summary';
+                if (params.toString()) {
+                    url += '?' + params.toString();
+                }
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                    // Still populate filters if available
+                    if (data.changelists) populateChangelistFilter(data.changelists);
+                    if (data.available_players) populatePlayerFilter(data.available_players);
+                    if (data.available_dirs) populateDirFilter(data.available_dirs);
+                } else {
+                    displaySummary(data);
+                }
+            } catch (e) {
+                showError('Failed to load summary: ' + e.message);
+            }
+            showLoading(false);
+        }
+
+        function populateChangelistFilter(changelists, selected = null) {
+            const currentValue = selected || changelistFilter.value;
+            changelistFilter.innerHTML = '<option value="">All Patches</option>';
+            changelists.forEach(cl => {
+                const option = document.createElement('option');
+                option.value = cl;
+                option.textContent = `CL ${cl}`;
+                changelistFilter.appendChild(option);
+            });
+            // Restore selection or default to latest
+            if (currentValue && changelists.includes(parseInt(currentValue))) {
+                changelistFilter.value = currentValue;
+            } else if (changelists.length > 0) {
+                changelistFilter.value = changelists[0];
+            }
+        }
+
+        function populatePlayerFilter(players, selected = null) {
+            const currentValue = selected || playerSelectFilter.value;
+            playerSelectFilter.innerHTML = '<option value="">Auto-detect</option>';
+            players.forEach(player => {
+                const option = document.createElement('option');
+                option.value = player;
+                option.textContent = player;
+                playerSelectFilter.appendChild(option);
+            });
+            // Restore selection
+            if (currentValue && players.includes(currentValue)) {
+                playerSelectFilter.value = currentValue;
+            }
+        }
+
+        function populateDirFilter(dirs, selected = null) {
+            const currentValue = selected || dirFilter.value;
+            dirFilter.innerHTML = '<option value="">All Directories</option>';
+            dirs.forEach(d => {
+                const option = document.createElement('option');
+                option.value = d.path;
+                option.textContent = d.name;
+                dirFilter.appendChild(option);
+            });
+            // Restore selection
+            if (currentValue) {
+                dirFilter.value = currentValue;
+            }
+        }
+
+        function getWinrateClass(winrate) {
+            if (winrate >= 55) return 'winrate-high';
+            if (winrate >= 45) return 'winrate-mid';
+            return 'winrate-low';
+        }
+
+        function displaySummary(data) {
+            // Populate all filters
+            if (data.changelists) {
+                populateChangelistFilter(data.changelists, data.changelist_filter);
+            }
+            if (data.available_players) {
+                populatePlayerFilter(data.available_players, data.main_player);
+            }
+            if (data.available_dirs) {
+                populateDirFilter(data.available_dirs, data.selected_dir);
+            }
+
+            // Overview stats
+            const overview = document.getElementById('summaryOverview');
+            overview.innerHTML = `
+                <div class="summary-stat">
+                    <div class="summary-stat-value">${escapeHtml(data.main_player)}</div>
+                    <div class="summary-stat-label">Player</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-stat-value">${data.replays_analyzed || data.total_games}</div>
+                    <div class="summary-stat-label">Games Analyzed</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-stat-value win">${data.wins}</div>
+                    <div class="summary-stat-label">Wins</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-stat-value loss">${data.losses}</div>
+                    <div class="summary-stat-label">Losses</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-stat-value ${getWinrateClass(data.win_rate)}">${data.win_rate.toFixed(1)}%</div>
+                    <div class="summary-stat-label">Win Rate</div>
+                </div>
+            `;
+
+            // Race stats
+            const raceStats = document.getElementById('raceStats');
+            raceStats.innerHTML = '';
+            if (data.race_stats && Object.keys(data.race_stats).length > 0) {
+                Object.entries(data.race_stats).forEach(([race, stats]) => {
+                    raceStats.innerHTML += `
+                        <div class="stat-row">
+                            <span class="stat-row-name">${escapeHtml(race)}</span>
+                            <div class="stat-row-details">
+                                <span class="stat-row-games">${stats.games} games (${stats.pick_rate.toFixed(1)}% pick rate)</span>
+                                <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                            </div>
+                        </div>
+                    `;
+                });
+            } else {
+                raceStats.innerHTML = '<div style="color: #666;">No race data</div>';
+            }
+
+            // Matchup stats
+            const matchupStats = document.getElementById('matchupStats');
+            matchupStats.innerHTML = '';
+            if (data.matchup_stats && Object.keys(data.matchup_stats).length > 0) {
+                Object.entries(data.matchup_stats)
+                    .sort((a, b) => b[1].games - a[1].games)
+                    .forEach(([matchup, stats]) => {
+                        matchupStats.innerHTML += `
+                            <div class="stat-row">
+                                <span class="stat-row-name">${escapeHtml(matchup)}</span>
+                                <div class="stat-row-details">
+                                    <span class="stat-row-games">${stats.games} games</span>
+                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+            } else {
+                matchupStats.innerHTML = '<div style="color: #666;">No matchup data</div>';
+            }
+
+            // First buildings by matchup
+            const buildingsByMatchup = document.getElementById('buildingsByMatchup');
+            buildingsByMatchup.innerHTML = '';
+            if (data.first_buildings_by_matchup && Object.keys(data.first_buildings_by_matchup).length > 0) {
+                Object.entries(data.first_buildings_by_matchup).forEach(([matchup, buildings]) => {
+                    const section = document.createElement('div');
+                    section.className = 'matchup-section';
+                    section.innerHTML = `<div class="matchup-title">${escapeHtml(matchup)}</div>`;
+
+                    const buildingsDiv = document.createElement('div');
+                    Object.entries(buildings)
+                        .sort((a, b) => {
+                            // Sort by building number (B1, B2, B3) then by count
+                            const aNum = parseInt(a[0].charAt(1));
+                            const bNum = parseInt(b[0].charAt(1));
+                            if (aNum !== bNum) return aNum - bNum;
+                            return b[1].count - a[1].count;
+                        })
+                        .forEach(([bldg, stats]) => {
+                            const wrClass = getWinrateClass(stats.win_rate);
+                            buildingsDiv.innerHTML += `
+                                <div class="building-stat">
+                                    <span class="building-stat-name">${escapeHtml(bldg)}</span>
+                                    <span class="building-stat-pct">${stats.percentage.toFixed(0)}%</span>
+                                    <span class="building-stat-wr ${wrClass}">${stats.win_rate.toFixed(0)}% WR</span>
+                                </div>
+                            `;
+                        });
+                    section.appendChild(buildingsDiv);
+                    buildingsByMatchup.appendChild(section);
+                });
+            } else {
+                buildingsByMatchup.innerHTML = '<div style="color: #666;">No building data</div>';
+            }
+
+            // Opening sequences
+            const openingSequences = document.getElementById('openingSequences');
+            openingSequences.innerHTML = '';
+            if (data.opening_sequences && Object.keys(data.opening_sequences).length > 0) {
+                Object.entries(data.opening_sequences)
+                    .sort((a, b) => b[1].count - a[1].count)
+                    .slice(0, 10)
+                    .forEach(([sequence, stats]) => {
+                        openingSequences.innerHTML += `
+                            <div class="stat-row">
+                                <span class="stat-row-name">${escapeHtml(sequence)}</span>
+                                <div class="stat-row-details">
+                                    <span class="stat-row-games">${stats.count}x (${stats.percentage.toFixed(1)}%)</span>
+                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+            } else {
+                openingSequences.innerHTML = '<div style="color: #666;">No opening sequence data</div>';
+            }
+
+            // First stormgate reward
+            const firstRewardStats = document.getElementById('firstRewardStats');
+            firstRewardStats.innerHTML = '';
+            if (data.first_reward_stats && Object.keys(data.first_reward_stats).length > 0) {
+                Object.entries(data.first_reward_stats)
+                    .sort((a, b) => b[1].count - a[1].count)
+                    .forEach(([reward, stats]) => {
+                        firstRewardStats.innerHTML += `
+                            <div class="stat-row">
+                                <span class="stat-row-name">${escapeHtml(reward)}</span>
+                                <div class="stat-row-details">
+                                    <span class="stat-row-games">${stats.count}x (${stats.percentage.toFixed(1)}%)</span>
+                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+            } else {
+                firstRewardStats.innerHTML = '<div style="color: #666;">No stormgate reward data</div>';
+            }
+
+            // Map stats
+            const mapStats = document.getElementById('mapStats');
+            mapStats.innerHTML = '';
+            if (data.map_stats && Object.keys(data.map_stats).length > 0) {
+                Object.entries(data.map_stats)
+                    .sort((a, b) => b[1].games - a[1].games)
+                    .forEach(([map, stats]) => {
+                        mapStats.innerHTML += `
+                            <div class="stat-row">
+                                <span class="stat-row-name">${escapeHtml(map)}</span>
+                                <div class="stat-row-details">
+                                    <span class="stat-row-games">${stats.games} games</span>
+                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+            } else {
+                mapStats.innerHTML = '<div style="color: #666;">No map data</div>';
+            }
+
+            // Teammate stats
+            const teammateStats = document.getElementById('teammateStats');
+            teammateStats.innerHTML = '';
+            if (data.teammate_stats && Object.keys(data.teammate_stats).length > 0) {
+                Object.entries(data.teammate_stats)
+                    .sort((a, b) => b[1].games - a[1].games)
+                    .forEach(([name, stats]) => {
+                        teammateStats.innerHTML += `
+                            <div class="stat-row">
+                                <span class="stat-row-name">${escapeHtml(name)}</span>
+                                <div class="stat-row-details">
+                                    <span class="stat-row-games">${stats.games} games</span>
+                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+            } else {
+                teammateStats.innerHTML = '<div style="color: #666;">No teammate data (1v1 only)</div>';
+            }
+
+            // Game length stats
+            const gameLengthStats = document.getElementById('gameLengthStats');
+            if (data.game_length_stats && data.game_length_stats.avg_formatted) {
+                gameLengthStats.innerHTML = `
+                    <div class="summary-overview" style="margin-bottom: 0;">
+                        <div class="summary-stat">
+                            <div class="summary-stat-value">${data.game_length_stats.avg_formatted}</div>
+                            <div class="summary-stat-label">Average</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="summary-stat-value win">${data.game_length_stats.avg_win_formatted}</div>
+                            <div class="summary-stat-label">Avg Win</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="summary-stat-value loss">${data.game_length_stats.avg_loss_formatted}</div>
+                            <div class="summary-stat-label">Avg Loss</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                gameLengthStats.innerHTML = '<div style="color: #666;">No game length data</div>';
+            }
+
+            // Changelist breakdown
+            const changelistStats = document.getElementById('changelistStats');
+            changelistStats.innerHTML = '';
+            if (data.changelist_stats && Object.keys(data.changelist_stats).length > 0) {
+                Object.entries(data.changelist_stats)
+                    .forEach(([cl, stats]) => {
+                        changelistStats.innerHTML += `
+                            <div class="stat-row">
+                                <span class="stat-row-name">CL ${escapeHtml(cl)}</span>
+                                <div class="stat-row-details">
+                                    <span class="stat-row-games">${stats.games} games</span>
+                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+            } else {
+                changelistStats.innerHTML = '<div style="color: #666;">No patch data</div>';
+            }
+        }
+
+        // Helper to get current filter options
+        function getCurrentFilterOptions() {
+            return {
+                changelist: changelistFilter.value || null,
+                player: playerSelectFilter.value || null,
+                dir: dirFilter.value || null,
+            };
+        }
+
+        // Filter change handlers
+        changelistFilter.addEventListener('change', () => {
+            loadSummary(getCurrentFilterOptions());
+        });
+
+        playerSelectFilter.addEventListener('change', () => {
+            loadSummary(getCurrentFilterOptions());
+        });
+
+        dirFilter.addEventListener('change', () => {
+            loadSummary(getCurrentFilterOptions());
+        });
+
+        // Refresh button
+        refreshSummaryBtn.addEventListener('click', () => {
+            loadSummary(getCurrentFilterOptions());
+        });
+
+        // Helper to group player slots by team
+        function groupByTeam(playerSlots, playerTeams) {
+            const teams = {};
+            playerSlots.forEach(slot => {
+                const team = playerTeams?.[slot] || playerTeams?.[parseInt(slot)] || 0;
+                if (!teams[team]) teams[team] = [];
+                teams[team].push(slot);
+            });
+            // Return sorted team numbers
+            const sortedTeams = Object.keys(teams).sort((a, b) => parseInt(a) - parseInt(b));
+            return sortedTeams.map(t => ({ team: parseInt(t), slots: teams[t] }));
+        }
+
+        // Load replay list on page load
+        async function loadReplayList() {
+            try {
+                const response = await fetch('/api/replays');
+                const replays = await response.json();
+                replays.forEach(r => {
+                    const option = document.createElement('option');
+                    option.value = r.name;
+                    option.textContent = `${r.name} (${(r.size / 1024).toFixed(1)} KB)`;
+                    replaySelect.appendChild(option);
+                });
+            } catch (e) {
+                showError('Failed to load replay list: ' + e.message);
+            }
+        }
+
+        replaySelect.addEventListener('change', () => {
+            loadBtn.disabled = !replaySelect.value;
+        });
+
+        loadBtn.addEventListener('click', () => {
+            if (replaySelect.value) {
+                loadReplay(replaySelect.value);
+            }
+        });
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                showLoading(true);
+                hideError();
+                try {
+                    const response = await fetch('/api/upload', {
+                        method: 'POST',
+                        body: await file.arrayBuffer()
+                    });
+                    const data = await response.json();
+                    if (data.error) {
+                        showError(data.error);
+                    } else {
+                        displayReplay(data);
+                    }
+                } catch (e) {
+                    showError('Failed to upload: ' + e.message);
+                }
+                showLoading(false);
+            }
+        });
+
+        async function loadReplay(filename) {
+            showLoading(true);
+            hideError();
+            replayInfo.classList.remove('visible');
+
+            try {
+                const response = await fetch(`/api/parse?file=${encodeURIComponent(filename)}`);
+                const data = await response.json();
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    displayReplay(data);
+                }
+            } catch (e) {
+                showError('Failed to load replay: ' + e.message);
+            }
+            showLoading(false);
+        }
+
+        function displayReplay(data) {
+            // Overview
+            document.getElementById('mapName').textContent = data.map || 'Unknown';
+            document.getElementById('duration').textContent = formatDuration(data.duration_seconds);
+            document.getElementById('actionCount').textContent = data.total_actions?.toLocaleString() || '-';
+            document.getElementById('changelist').textContent = data.header?.changelist || '-';
+
+            // Display winner
+            const winnerStat = document.getElementById('winnerStat');
+            const winnerEl = document.getElementById('winner');
+            if (data.game_result && data.game_result.result === 'complete' && data.game_result.winners.length > 0) {
+                winnerEl.textContent = data.game_result.winners.join(', ');
+                winnerStat.style.display = 'block';
+            } else {
+                winnerStat.style.display = 'none';
+            }
+
+            // Calculate APM per player
+            const playerStats = {};
+            const gameDuration = data.duration_seconds || 1;
+            if (data.actions) {
+                data.actions.forEach(action => {
+                    if (action.player_id && action.player_id !== 64 && action.type === 'COMMAND') {
+                        if (!playerStats[action.player_id]) {
+                            playerStats[action.player_id] = { actions: 0, name: action.player };
+                        }
+                        playerStats[action.player_id].actions++;
+                    }
+                });
+            }
+
+            // Players with APM, faction, and result
+            const playerList = document.getElementById('playerList');
+            playerList.innerHTML = '';
+            let colorIndex = 0;
+            const playerResults = data.game_result?.player_results || {};
+            const playerFactions = data.player_factions || {};
+            if (data.players) {
+                Object.entries(data.players).forEach(([slot, name]) => {
+                    const stats = playerStats[slot] || { actions: 0 };
+                    const apm = gameDuration > 0 ? Math.round(stats.actions / (gameDuration / 60)) : 0;
+                    const color = playerColors[colorIndex++ % playerColors.length];
+                    const result = playerResults[slot];
+                    const faction = playerFactions[slot] || 'Unknown';
+                    const resultClass = result === 'win' ? 'winner' : (result === 'loss' ? 'loser' : '');
+                    const div = document.createElement('div');
+                    div.className = 'player' + (resultClass ? ' ' + resultClass : '');
+                    let resultHtml = '';
+                    if (result === 'win') {
+                        resultHtml = '<div class="player-result win">Victory</div>';
+                    } else if (result === 'loss') {
+                        resultHtml = '<div class="player-result loss">Defeat</div>';
+                    }
+                    const factionClass = faction.toLowerCase();
+                    div.innerHTML = `
+                        <div class="player-slot">Slot ${slot}</div>
+                        <div class="player-name" style="color: ${color}">${escapeHtml(name)}</div>
+                        <div class="player-faction ${factionClass}">${faction}</div>
+                        <div class="player-apm"><strong>${apm}</strong> APM (${stats.actions.toLocaleString()} actions)</div>
+                        ${resultHtml}
+                    `;
+                    playerList.appendChild(div);
+                });
+            }
+
+            // Building Orders
+            displayBuildingOrders(data.building_orders, data.players, data.player_teams, data.player_factions);
+
+            // Upgrades
+            displayPlayerUpgrades(data.player_upgrades, data.players, data.player_teams, data.player_factions);
+
+            // Stormgate Rewards
+            displayStormgateRewards(data.stormgate_rewards, data.players, data.player_teams, data.player_factions);
+
+            // Unit Production
+            displayUnitProduction(data.unit_production, data.unit_production_timeline, data.players);
+
+            // Chat
+            const chatLog = document.getElementById('chatLog');
+            chatLog.innerHTML = '';
+            if (data.chat && data.chat.length > 0) {
+                data.chat.forEach(msg => {
+                    const div = document.createElement('div');
+                    div.className = 'chat-message';
+                    div.innerHTML = `
+                        <span class="chat-time">[${msg.time || '??:??'}]</span>
+                        <span class="chat-player">${escapeHtml(msg.player || 'Unknown')}</span>
+                        <span class="chat-text">${escapeHtml(msg.text || '')}</span>
+                    `;
+                    chatLog.appendChild(div);
+                });
+            } else {
+                chatLog.innerHTML = '<div class="chat-message" style="color: #666;">No chat messages</div>';
+            }
+
+            // Action types table
+            const actionTable = document.getElementById('actionTable').querySelector('tbody');
+            actionTable.innerHTML = '';
+            if (data.action_types) {
+                Object.entries(data.action_types)
+                    .sort((a, b) => b[1] - a[1])
+                    .forEach(([type, count]) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${escapeHtml(type)}</td><td class="count">${count.toLocaleString()}</td>`;
+                        actionTable.appendChild(tr);
+                    });
+            }
+
+            // Abilities table
+            const abilityTable = document.getElementById('abilityTable').querySelector('tbody');
+            abilityTable.innerHTML = '';
+            if (data.ability_stats) {
+                Object.entries(data.ability_stats)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 50)
+                    .forEach(([ability, count]) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${escapeHtml(ability)}</td><td class="count">${count.toLocaleString()}</td>`;
+                        abilityTable.appendChild(tr);
+                    });
+            }
+
+            // Entities
+            const entityList = document.getElementById('entityList');
+            entityList.innerHTML = '';
+            if (data.entities) {
+                Object.entries(data.entities)
+                    .sort((a, b) => (b[1].action_count || 0) - (a[1].action_count || 0))
+                    .slice(0, 50)
+                    .forEach(([id, entity]) => {
+                        const div = document.createElement('div');
+                        div.className = 'entity';
+                        div.innerHTML = `
+                            <div class="entity-header">
+                                <span class="entity-name">${escapeHtml(entity.inferred_type || 'Unknown')}</span>
+                                <span class="entity-owner">${escapeHtml(entity.owner_name || '?')}</span>
+                            </div>
+                            <div class="entity-actions">${entity.action_count || 0} actions</div>
+                        `;
+                        entityList.appendChild(div);
+                    });
+            }
+
+            // Timeline - store all actions and setup filters
+            allActions = data.actions || [];
+            currentPlayers = data.players || {};
+            currentPage = 0;
+
+            // Populate player filter
+            const playerFilter = document.getElementById('playerFilter');
+            playerFilter.innerHTML = '<option value="">All Players</option>';
+            Object.entries(currentPlayers).forEach(([slot, name]) => {
+                const option = document.createElement('option');
+                option.value = slot;
+                option.textContent = name;
+                playerFilter.appendChild(option);
+            });
+
+            // Populate action type filter
+            const actionTypeFilter = document.getElementById('actionTypeFilter');
+            actionTypeFilter.innerHTML = '<option value="">All Action Types</option>';
+            const actionTypes = [...new Set(allActions.map(a => a.type))].sort();
+            actionTypes.forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = type;
+                actionTypeFilter.appendChild(option);
+            });
+
+            applyTimelineFilters();
+            replayInfo.classList.add('visible');
+
+            // Draw charts after container is visible
+            requestAnimationFrame(() => {
+                drawApmChart(data.actions, data.players, gameDuration);
+                drawSpawnTimeline(data.actions, data.players, gameDuration);
+            });
+        }
+
+        function displayBuildingOrders(buildingOrders, players, playerTeams, playerFactions) {
+            const container = document.getElementById('buildingOrders');
+            container.innerHTML = '';
+
+            if (!buildingOrders || Object.keys(buildingOrders).length === 0) {
+                container.innerHTML = '<div style="color: #666;">No building data detected</div>';
+                return;
+            }
+
+            const sortedSlots = Object.keys(buildingOrders).sort((a, b) => parseInt(a) - parseInt(b));
+            const teamGroups = groupByTeam(sortedSlots, playerTeams);
+
+            teamGroups.forEach(({ team, slots }) => {
+                const teamDiv = document.createElement('div');
+                teamDiv.className = 'team-group';
+
+                // Team header (only show if we have team info)
+                if (team > 0) {
+                    const teamHeader = document.createElement('div');
+                    teamHeader.className = 'team-header';
+                    teamHeader.style.color = teamColors[team] || '#d4a574';
+                    teamHeader.textContent = `Team ${team}`;
+                    teamDiv.appendChild(teamHeader);
+                }
+
+                slots.forEach((slot, idx) => {
+                    const buildings = buildingOrders[slot];
+                    const playerName = players?.[slot] || `Player ${slot}`;
+                    const faction = playerFactions?.[slot] || playerFactions?.[parseInt(slot)] || '';
+                    const color = teamColors[team] || playerColors[idx % playerColors.length];
+
+                    const playerDiv = document.createElement('div');
+                    playerDiv.className = 'player-buildings';
+
+                    const header = document.createElement('div');
+                    header.className = 'player-buildings-header';
+                    header.innerHTML = `
+                        <span class="player-buildings-name" style="color: ${color}">${escapeHtml(playerName)}${faction ? ` <span style="opacity: 0.7">(${faction})</span>` : ''}</span>
+                        <span class="player-buildings-count">${buildings.length} buildings</span>
+                    `;
+                    playerDiv.appendChild(header);
+
+                    const orderDiv = document.createElement('div');
+                    orderDiv.className = 'building-order';
+
+                    buildings.forEach((b, i) => {
+                        const item = document.createElement('div');
+                        item.className = 'building-item' + (b.inferred ? ' inferred' : '');
+                        item.innerHTML = `
+                            <span class="building-time">${b.time || '??:??'}</span>
+                            <span class="building-name">${escapeHtml(formatBuildingName(b.building_name))}</span>
+                        `;
+                        if (b.inferred) {
+                            item.title = 'Inferred from unit production - build command not recorded in replay';
+                        }
+                        orderDiv.appendChild(item);
+                    });
+
+                    playerDiv.appendChild(orderDiv);
+                    teamDiv.appendChild(playerDiv);
+                });
+
+                container.appendChild(teamDiv);
+            });
+        }
+
+        function formatBuildingName(name) {
+            if (!name) return 'Unknown';
+            // Remove common suffixes and format
+            return name
+                .replace(/Data$/, '')
+                .replace(/([a-z])([A-Z])/g, '$1 $2')
+                .replace(/_/g, ' ')
+                .trim();
+        }
+
+        function displayPlayerUpgrades(playerUpgrades, players, playerTeams, playerFactions) {
+            const container = document.getElementById('playerUpgrades');
+            container.innerHTML = '';
+
+            if (!playerUpgrades || Object.keys(playerUpgrades).length === 0) {
+                container.innerHTML = '<div style="color: #666;">No upgrades detected</div>';
+                return;
+            }
+
+            const sortedSlots = Object.keys(playerUpgrades).sort((a, b) => parseInt(a) - parseInt(b));
+            const teamGroups = groupByTeam(sortedSlots, playerTeams);
+
+            teamGroups.forEach(({ team, slots }) => {
+                const teamDiv = document.createElement('div');
+                teamDiv.className = 'team-group';
+
+                if (team > 0) {
+                    const teamHeader = document.createElement('div');
+                    teamHeader.className = 'team-header';
+                    teamHeader.style.color = teamColors[team] || '#d4a574';
+                    teamHeader.textContent = `Team ${team}`;
+                    teamDiv.appendChild(teamHeader);
+                }
+
+                slots.forEach((slot, idx) => {
+                    const upgrades = playerUpgrades[slot];
+                    const playerName = players?.[slot] || `Player ${slot}`;
+                    const faction = playerFactions?.[slot] || playerFactions?.[parseInt(slot)] || '';
+                    const color = teamColors[team] || playerColors[idx % playerColors.length];
+
+                    const playerDiv = document.createElement('div');
+                    playerDiv.className = 'player-buildings';
+
+                    const header = document.createElement('div');
+                    header.className = 'player-buildings-header';
+                    header.innerHTML = `
+                        <span class="player-buildings-name" style="color: ${color}">${escapeHtml(playerName)}${faction ? ` <span style="opacity: 0.7">(${faction})</span>` : ''}</span>
+                        <span class="player-buildings-count">${upgrades.length} upgrade${upgrades.length !== 1 ? 's' : ''}</span>
+                    `;
+                    playerDiv.appendChild(header);
+
+                    const orderDiv = document.createElement('div');
+                    orderDiv.className = 'building-order';
+
+                    upgrades.forEach((u, i) => {
+                        const item = document.createElement('div');
+                        item.className = 'building-item';
+                        item.innerHTML = `
+                            <span class="building-time">${u.time || '??:??'}</span>
+                            <span class="building-name">${escapeHtml(u.upgrade_name)}</span>
+                        `;
+                        orderDiv.appendChild(item);
+                    });
+
+                    playerDiv.appendChild(orderDiv);
+                    teamDiv.appendChild(playerDiv);
+                });
+
+                container.appendChild(teamDiv);
+            });
+        }
+
+        function displayStormgateRewards(stormgateRewards, players, playerTeams, playerFactions) {
+            const container = document.getElementById('stormgateRewards');
+            container.innerHTML = '';
+
+            if (!stormgateRewards || Object.keys(stormgateRewards).length === 0) {
+                container.innerHTML = '<div style="color: #666;">No Stormgate rewards chosen</div>';
+                return;
+            }
+
+            const sortedSlots = Object.keys(stormgateRewards).sort((a, b) => parseInt(a) - parseInt(b));
+            const teamGroups = groupByTeam(sortedSlots, playerTeams);
+
+            teamGroups.forEach(({ team, slots }) => {
+                const teamDiv = document.createElement('div');
+                teamDiv.className = 'team-group';
+
+                if (team > 0) {
+                    const teamHeader = document.createElement('div');
+                    teamHeader.className = 'team-header';
+                    teamHeader.style.color = teamColors[team] || '#d4a574';
+                    teamHeader.textContent = `Team ${team}`;
+                    teamDiv.appendChild(teamHeader);
+                }
+
+                slots.forEach((slot, idx) => {
+                    const rewards = stormgateRewards[slot];
+                    const playerName = players?.[slot] || `Player ${slot}`;
+                    const faction = playerFactions?.[slot] || playerFactions?.[parseInt(slot)] || '';
+                    const color = teamColors[team] || playerColors[idx % playerColors.length];
+
+                    const playerDiv = document.createElement('div');
+                    playerDiv.className = 'player-buildings';
+
+                    const header = document.createElement('div');
+                    header.className = 'player-buildings-header';
+                    header.innerHTML = `
+                        <span class="player-buildings-name" style="color: ${color}">${escapeHtml(playerName)}${faction ? ` <span style="opacity: 0.7">(${faction})</span>` : ''}</span>
+                        <span class="player-buildings-count">${rewards.length} reward${rewards.length !== 1 ? 's' : ''}</span>
+                    `;
+                    playerDiv.appendChild(header);
+
+                    const orderDiv = document.createElement('div');
+                    orderDiv.className = 'building-order';
+
+                    rewards.forEach((r, i) => {
+                        const item = document.createElement('div');
+                        item.className = 'building-item stormgate-reward';
+                        item.innerHTML = `
+                            <span class="building-time">${r.time || '??:??'}</span>
+                            <span class="building-name">${escapeHtml(r.reward_name)}</span>
+                        `;
+                        orderDiv.appendChild(item);
+                    });
+
+                    playerDiv.appendChild(orderDiv);
+                    teamDiv.appendChild(playerDiv);
+                });
+
+                container.appendChild(teamDiv);
+            });
+        }
+
+        function displayUnitProduction(summary, timeline, players) {
+            const container = document.getElementById('unitProduction');
+            container.innerHTML = '';
+
+            if (!summary || Object.keys(summary).length === 0) {
+                container.innerHTML = '<div style="color: #666;">No unit production detected</div>';
+                return;
+            }
+
+            // Sort players by slot
+            const sortedSlots = Object.keys(summary).sort((a, b) => parseInt(a) - parseInt(b));
+
+            sortedSlots.forEach((slot, idx) => {
+                const buildings = summary[slot];
+                const productions = timeline?.[slot] || [];
+                const playerName = players?.[slot] || `Player ${slot}`;
+                const color = playerColors[idx % playerColors.length];
+
+                const totalUnits = Object.values(buildings).reduce((a, b) => a + b, 0);
+
+                const playerDiv = document.createElement('div');
+                playerDiv.className = 'player-buildings';
+
+                const header = document.createElement('div');
+                header.className = 'player-buildings-header';
+                header.innerHTML = `
+                    <span class="player-buildings-name" style="color: ${color}">${escapeHtml(playerName)}</span>
+                    <span class="player-buildings-count">${totalUnits} unit${totalUnits !== 1 ? 's' : ''}</span>
+                `;
+                playerDiv.appendChild(header);
+
+                // Show summary by building
+                const summaryDiv = document.createElement('div');
+                summaryDiv.className = 'building-order';
+                summaryDiv.style.marginBottom = '8px';
+
+                // Sort buildings by count (descending)
+                const sortedBuildings = Object.entries(buildings).sort((a, b) => b[1] - a[1]);
+                sortedBuildings.forEach(([building, count]) => {
+                    const item = document.createElement('div');
+                    item.className = 'building-item';
+                    item.innerHTML = `
+                        <span class="building-name">${escapeHtml(building)}</span>
+                        <span class="building-time" style="margin-left: auto;">×${count}</span>
+                    `;
+                    summaryDiv.appendChild(item);
+                });
+
+                playerDiv.appendChild(summaryDiv);
+                container.appendChild(playerDiv);
+            });
+        }
+
+        function applyTimelineFilters() {
+            const playerFilter = document.getElementById('playerFilter').value;
+            const actionTypeFilter = document.getElementById('actionTypeFilter').value;
+
+            filteredActions = allActions.filter(action => {
+                if (playerFilter && String(action.player_id) !== playerFilter) return false;
+                if (actionTypeFilter && action.type !== actionTypeFilter) return false;
+                return true;
+            });
+
+            currentPage = 0;
+            renderTimeline();
+        }
+
+        function renderTimeline() {
+            const timelineList = document.getElementById('timelineList');
+            timelineList.innerHTML = '';
+
+            const start = currentPage * PAGE_SIZE;
+            const end = start + PAGE_SIZE;
+            const pageActions = filteredActions.slice(start, end);
+
+            pageActions.forEach(action => {
+                const div = document.createElement('div');
+                div.className = 'timeline-entry';
+                const time = action.frame ? formatTime(action.frame / 1024) : '00:00';
+                const player = action.player || `P${action.player_id || '?'}`;
+                let details = action.type || '';
+                if (action.ability_name) details += ` [${action.ability_name}]`;
+                if (action.target_type_name) details += ` -> ${action.target_type_name}`;
+                div.innerHTML = `
+                    <span class="timeline-time">[${time}]</span>
+                    <span class="timeline-player">${escapeHtml(player)}</span>
+                    <span class="timeline-action">${escapeHtml(details)}</span>
+                `;
+                timelineList.appendChild(div);
+            });
+
+            // Update stats and pagination
+            const totalPages = Math.ceil(filteredActions.length / PAGE_SIZE);
+            document.getElementById('timelineStats').textContent =
+                `${filteredActions.length.toLocaleString()} actions`;
+            document.getElementById('pageInfo').textContent =
+                `Page ${currentPage + 1} of ${totalPages || 1}`;
+            document.getElementById('prevPage').disabled = currentPage === 0;
+            document.getElementById('nextPage').disabled = currentPage >= totalPages - 1;
+        }
+
+        function formatDuration(seconds) {
+            if (!seconds) return '-';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function showError(msg) {
+            errorDiv.textContent = msg;
+            errorDiv.style.display = 'block';
+        }
+
+        function hideError() {
+            errorDiv.style.display = 'none';
+        }
+
+        function showLoading(show) {
+            loadingDiv.style.display = show ? 'block' : 'none';
+        }
+
+        // ECharts APM Chart
+        function drawApmChart(actions, players, gameDuration) {
+            const chartDom = document.getElementById('apmChart');
+
+            if (apmChartInstance) {
+                apmChartInstance.dispose();
+            }
+            apmChartInstance = echarts.init(chartDom, 'dark');
+
+            if (!actions || !players || gameDuration <= 0) {
+                return;
+            }
+
+            // Group actions by player and time bucket (30 second intervals)
+            const bucketSize = 30; // seconds
+            const numBuckets = Math.ceil(gameDuration / bucketSize);
+            const playerSlots = Object.keys(players);
+
+            const playerBuckets = {};
+            playerSlots.forEach(slot => {
+                playerBuckets[slot] = new Array(numBuckets).fill(0);
+            });
+
+            actions.forEach(action => {
+                if (action.player_id && action.player_id !== 64 && action.type === 'COMMAND') {
+                    const slot = String(action.player_id);
+                    if (playerBuckets[slot]) {
+                        const timeSec = (action.frame || 0) / 1024;
+                        const bucket = Math.min(Math.floor(timeSec / bucketSize), numBuckets - 1);
+                        playerBuckets[slot][bucket]++;
+                    }
+                }
+            });
+
+            // Convert counts to APM
+            const xAxisData = [];
+            for (let i = 0; i < numBuckets; i++) {
+                xAxisData.push(formatTime(i * bucketSize));
+            }
+
+            const series = playerSlots.map((slot, idx) => ({
+                name: players[slot],
+                type: 'line',
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 6,
+                data: playerBuckets[slot].map(count => count * (60 / bucketSize)),
+                lineStyle: {
+                    width: 2
+                },
+                itemStyle: {
+                    color: playerColors[idx % playerColors.length]
+                }
+            }));
+
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: '#1a1512',
+                    borderColor: '#3d3028',
+                    textStyle: {
+                        color: '#f0e6dc'
+                    },
+                    formatter: function(params) {
+                        let result = `<div style="font-weight: bold; color: #d4a574; margin-bottom: 5px;">${params[0].axisValue}</div>`;
+                        params.forEach(p => {
+                            result += `<div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${p.color};"></span>
+                                <span>${p.seriesName}: <strong>${Math.round(p.value)} APM</strong></span>
+                            </div>`;
+                        });
+                        return result;
+                    }
+                },
+                legend: {
+                    data: playerSlots.map(slot => players[slot]),
+                    textStyle: {
+                        color: '#8b7355'
+                    },
+                    top: 0
+                },
+                grid: {
+                    left: 50,
+                    right: 20,
+                    bottom: 30,
+                    top: 40
+                },
+                xAxis: {
+                    type: 'category',
+                    data: xAxisData,
+                    axisLine: {
+                        lineStyle: { color: '#3d3028' }
+                    },
+                    axisLabel: {
+                        color: '#8b7355',
+                        interval: Math.floor(numBuckets / 10) || 1
+                    },
+                    splitLine: {
+                        show: false
+                    }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: 'APM',
+                    nameTextStyle: {
+                        color: '#8b7355'
+                    },
+                    axisLine: {
+                        lineStyle: { color: '#3d3028' }
+                    },
+                    axisLabel: {
+                        color: '#8b7355'
+                    },
+                    splitLine: {
+                        lineStyle: { color: '#2a2018' }
+                    }
+                },
+                series: series,
+                dataZoom: gameDuration > 600 ? [{
+                    type: 'inside',
+                    start: 0,
+                    end: 100
+                }, {
+                    type: 'slider',
+                    start: 0,
+                    end: 100,
+                    height: 20,
+                    bottom: 0,
+                    borderColor: '#3d3028',
+                    backgroundColor: '#1a1512',
+                    fillerColor: 'rgba(59, 130, 246, 0.2)',
+                    handleStyle: {
+                        color: '#3b82f6'
+                    },
+                    textStyle: {
+                        color: '#8b7355'
+                    }
+                }] : []
+            };
+
+            apmChartInstance.setOption(option);
+
+            // Handle resize
+            window.addEventListener('resize', () => {
+                apmChartInstance?.resize();
+            });
+        }
+
+        // ECharts Spawn Timeline
+        function drawSpawnTimeline(actions, players, gameDuration) {
+            const chartDom = document.getElementById('spawnChart');
+
+            if (spawnChartInstance) {
+                spawnChartInstance.dispose();
+            }
+            spawnChartInstance = echarts.init(chartDom, 'dark');
+
+            if (!actions || !players || gameDuration <= 0) {
+                return;
+            }
+
+            // Spawn patterns
+            const SPAWN_PATTERNS = [
+                'MechBay_Spawn', 'Bastion_Spawn', 'Mainframe_Spawn', 'Haven_Spawn',
+                'BarracksSpawn', 'ExoBarracksSpawn', 'HQSpawn',
+                'HangarBaySpawn', 'HornetBaySpawn',
+                'Arcship_Spawn', 'CreationChamber_Spawn', 'CollectionArray_Spawn',
+                'Shrine_Spawn', 'IronVault_Spawn', 'Conclave_Spawn',
+                'FiendVault_Spawn', 'BruteVault_Spawn', 'TwilightSpire_Spawn'
+            ];
+
+            const TIER_PATTERNS = [
+                'MorphToHQTier2', 'MorphToHQTier3',
+                'MorphToArcshipTier2', 'MorphToArcshipTier3',
+                'MorphToGreaterShrine', 'MorphToElderShrine'
+            ];
+
+            const playerSlots = Object.keys(players);
+
+            // Get spawn events
+            const spawnEvents = actions.filter(a => {
+                if (!a.ability_name || a.player_id === 64) return false;
+                const name = a.ability_name;
+                if (SPAWN_PATTERNS.some(p => name.includes(p))) return true;
+                if (name.includes('_Spawn') || name.endsWith('Spawn')) {
+                    if (name.includes('Behavior_') || name.includes('Death') ||
+                        name.includes('Effect') || name.includes('Buff')) return false;
+                    return true;
+                }
+                return false;
+            });
+
+            // Get tier events
+            const tierEvents = actions.filter(a => {
+                if (!a.ability_name || a.player_id === 64) return false;
+                return TIER_PATTERNS.some(p => a.ability_name.includes(p));
+            });
+
+            // Build scatter data
+            const spawnData = spawnEvents.map(e => {
+                const playerIdx = playerSlots.indexOf(String(e.player_id));
+                const timeSec = (e.frame || 0) / 1024;
+                return {
+                    value: [timeSec, playerIdx],
+                    name: formatAbilityName(e.ability_name),
+                    player: players[e.player_id] || `P${e.player_id}`,
+                    time: formatTime(timeSec)
+                };
+            });
+
+            const tierData = tierEvents.map(e => {
+                const playerIdx = playerSlots.indexOf(String(e.player_id));
+                const timeSec = (e.frame || 0) / 1024;
+                return {
+                    value: [timeSec, playerIdx],
+                    name: formatAbilityName(e.ability_name),
+                    player: players[e.player_id] || `P${e.player_id}`,
+                    time: formatTime(timeSec)
+                };
+            });
+
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'item',
+                    backgroundColor: '#1a1512',
+                    borderColor: '#3d3028',
+                    textStyle: {
+                        color: '#f0e6dc'
+                    },
+                    formatter: function(params) {
+                        return `<div style="font-weight: bold; color: #d4a574;">${params.data.name}</div>
+                            <div style="color: #3b82f6;">${params.data.player}</div>
+                            <div style="color: #8b7355;">${params.data.time}</div>`;
+                    }
+                },
+                legend: {
+                    data: ['Production', 'Tier Upgrade'],
+                    textStyle: {
+                        color: '#8b7355'
+                    },
+                    top: 0
+                },
+                grid: {
+                    left: 100,
+                    right: 20,
+                    bottom: 30,
+                    top: 40
+                },
+                xAxis: {
+                    type: 'value',
+                    min: 0,
+                    max: gameDuration,
+                    axisLine: {
+                        lineStyle: { color: '#3d3028' }
+                    },
+                    axisLabel: {
+                        color: '#8b7355',
+                        formatter: function(val) {
+                            return formatTime(val);
+                        }
+                    },
+                    splitLine: {
+                        lineStyle: { color: '#2a2018' }
+                    }
+                },
+                yAxis: {
+                    type: 'category',
+                    data: playerSlots.map(slot => players[slot]),
+                    axisLine: {
+                        lineStyle: { color: '#3d3028' }
+                    },
+                    axisLabel: {
+                        color: '#d4a574'
+                    },
+                    splitLine: {
+                        show: false
+                    }
+                },
+                series: [
+                    {
+                        name: 'Production',
+                        type: 'scatter',
+                        data: spawnData,
+                        symbolSize: 10,
+                        itemStyle: {
+                            color: '#3b82f6'
+                        }
+                    },
+                    {
+                        name: 'Tier Upgrade',
+                        type: 'scatter',
+                        data: tierData,
+                        symbol: 'diamond',
+                        symbolSize: 14,
+                        itemStyle: {
+                            color: '#ffd700'
+                        }
+                    }
+                ]
+            };
+
+            spawnChartInstance.setOption(option);
+
+            // Handle resize
+            window.addEventListener('resize', () => {
+                spawnChartInstance?.resize();
+            });
+        }
+
+        function formatAbilityName(abilityName) {
+            if (!abilityName) return 'Unknown';
+
+            // Handle tier upgrades
+            if (abilityName.includes('MorphToHQTier2')) return 'HQ Tier 2';
+            if (abilityName.includes('MorphToHQTier3')) return 'HQ Tier 3';
+            if (abilityName.includes('MorphToArcshipTier2')) return 'Arcship Tier 2';
+            if (abilityName.includes('MorphToArcshipTier3')) return 'Arcship Tier 3';
+            if (abilityName.includes('MorphToGreaterShrine')) return 'Greater Shrine';
+            if (abilityName.includes('MorphToElderShrine')) return 'Elder Shrine';
+
+            // Format spawn names
+            return abilityName
+                .replace(/_Spawn$/g, '')
+                .replace(/Spawn$/g, '')
+                .replace(/_/g, ' ')
+                .replace(/([a-z])([A-Z])/g, '$1 $2')
+                .trim() || abilityName;
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Timeline filter and pagination handlers
+        document.getElementById('playerFilter').addEventListener('change', applyTimelineFilters);
+        document.getElementById('actionTypeFilter').addEventListener('change', applyTimelineFilters);
+        document.getElementById('prevPage').addEventListener('click', () => {
+            if (currentPage > 0) {
+                currentPage--;
+                renderTimeline();
+            }
+        });
+        document.getElementById('nextPage').addEventListener('click', () => {
+            const totalPages = Math.ceil(filteredActions.length / PAGE_SIZE);
+            if (currentPage < totalPages - 1) {
+                currentPage++;
+                renderTimeline();
+            }
+        });
+
+        // Initialize - load summary on page load
+        let replayListLoaded = false;
+        loadSummary();  // Load summary first
+
+        // Lazy load replay list when switching to replay view
+        replayViewBtn.addEventListener('click', () => {
+            if (!replayListLoaded) {
+                loadReplayList();
+                replayListLoaded = true;
+            }
+        });
+    </script>
+</body>
+</html>

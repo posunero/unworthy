@@ -16,7 +16,7 @@ import sys
 from collections import Counter
 from typing import Dict, Optional, Tuple
 
-RUNTIME_SESSION_PATH = os.path.join(os.path.dirname(__file__), 'runtime_session.json')
+RUNTIME_SESSION_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'runtime_session.json')
 
 
 class AbilityLookup:

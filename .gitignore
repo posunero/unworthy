@@ -1,9 +1,16 @@
 # Replay files (large binary files)
 *.SGReplay
 *.sgreplay
+replays/
 
-# JSON output files
-*.json
+# JSON output files (but not data files)
+*_actions.json
+
+# PyInstaller
+*.spec
+
+# uv
+.uv/
 
 # Python
 __pycache__/
@@ -45,3 +52,4 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+nul

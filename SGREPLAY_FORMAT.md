@@ -24,8 +24,50 @@ Stormgate replays use a **command-based format** (similar to StarCraft 2). They 
 ### Compressed Data
 
 After the 20-byte header:
-- **Gzip header** (10 bytes): `1F 8B 08 00 00 00 00 00 00 0A`
-- **Deflate-compressed data**: Raw deflate stream (use zlib with -MAX_WBITS)
+- **Gzip header** (often 10 bytes, but can be longer if optional gzip header flags are set)
+  - Magic: `1F 8B`
+  - Compression method: `08` (deflate)
+- **Deflate-compressed data**: Raw deflate stream (use zlib with `-MAX_WBITS`)
+
+#### Important: bytes after the deflate stream (gzip trailer + extra footer)
+
+Empirically (across the `.SGReplay` files in this repo), there are often bytes *after* the deflate stream
+in the compressed payload:
+
+- **Gzip trailer (8 bytes)**: CRC32 + ISIZE (RFC 1952)
+- **Appended uncompressed protobuf footer (variable)**: a protobuf message containing metadata such as:
+  - map name
+  - player names
+  - a long hex-ish match/game identifier string
+
+This footer is not part of the decompressed length-prefixed message stream, so a parser must look at
+`zlib.decompressobj().unused_data` to capture it.
+
+#### Footer Structure
+
+The footer protobuf contains game result information:
+
+```protobuf
+message Footer {
+    optional uint32 final_frame = 1;     // Last game frame
+    optional string map_name = 2;        // Map name
+    repeated PlayerResult players = 3;   // Player results
+    optional string match_id = 4;        // Match identifier (hex string)
+}
+
+message PlayerResult {
+    optional uint32 slot = 1;            // Player slot (1-4)
+    optional string name = 2;            // Player display name
+    optional uint32 result = 3;          // 1 = loss, absent = win
+    optional uint32 team = 4;            // Team number
+    optional uint32 position = 5;        // Player position
+}
+```
+
+**Game Result Detection:**
+- If `PlayerResult.result = 1`, the player **lost**
+- If `PlayerResult.result` is absent/missing, the player **won**
+- Works for 1v1, 2v2, and other team formats
 
 ### Decompressed Content
 
@@ -53,15 +95,23 @@ message Content {
 
 ### Frame/Timestamp
 
-- Field 1 is the timestamp in **milliseconds** from game start
-- To convert to seconds: `frame / 1000`
-- To convert to mm:ss: `minutes = frame / 60000`, `seconds = (frame / 1000) % 60`
+- Field 1 is the timestamp in **ticks at 1024 Hz** from game start (not milliseconds)
+- To convert to seconds: `frame / 1024`
+- To convert to mm:ss: `minutes = frame / 1024 / 60`, `seconds = (frame / 1024) % 60`
 
 ### Player ID
 
 - Values 1-5: Player slots
 - Value 64: System/global messages (game setup, spawns)
 
+### Verified Map Name Location
+
+Across the replays in this repository, the map name is present very early (often the first message)
+at the path:
+
+- `3 -> 1 -> 3 -> 2` (string)
+
+Other paths may exist in other versions, but this one is confirmed for the files in this repo.
 ## Action Types (Field Numbers in ActionData)
 
 | Field | Type | Description |
@@ -105,21 +155,113 @@ message Command {
 message TargetData {
     optional uint32 target_id = 1;    // Entity ID being targeted
     optional uint32 target_type = 2;  // Entity type hash/ID
-    optional uint32 unk3 = 3;         // Usually 0
-    optional uint32 unk4 = 4;         // Usually 0
-    optional uint32 unk5 = 5;         // Usually 0
-    optional uint32 unk6 = 6;         // Usually 0
+    optional uint32 player_slot = 3;  // Player slot index (not player_id!)
+    optional uint32 entity_ref = 4;   // Entity handle/selection reference
+    optional int64 x_coord = 5;       // X coordinate (fixed-point ÷65536)
+    optional int64 y_coord = 6;       // Y coordinate (fixed-point ÷65536)
 }
 ```
+
+#### Target Data Subfields
+
+**Fields 3-4 (Player/Entity References):**
+- Used in global UI actions (selection, control groups)
+- Field 3 is a player slot index (differs from player_id)
+- Field 4 contains entity handles, often appear in pairs
+
+**Fields 5-6 (Coordinates):**
+- Signed 64-bit fixed-point coordinates
+- Divide by 65536 to get world position
+- Used for positional commands: attack-move, build placement, ability targeting
+- Example: `x=18446744073557508096` → signed: `-152043520` → world: `-2320.3`
+
+**Subfield patterns by command type:**
+| Pattern | Count | Usage |
+|---------|-------|-------|
+| No f3-f6 | ~3000 | Basic unit commands |
+| f3 + f4 | ~800 | Global UI actions |
+| f5 + f6 | ~500 | Positional commands (attack, build) |
+| f3 + f5 + f6 | ~90 | UI + position |
 
 ### Field 7 -> 4: Ability Data
 
 ```protobuf
 message AbilityData {
     optional uint32 ability_id = 1;   // Ability type hash
-    // Additional fields vary
+    optional uint32 position_index = 2; // Build position slot?
+    optional uint32 building_type = 3;  // Building type ID (for construction)
+    optional Coordinates coords = 4;    // Target coordinates
+    optional uint32 unk5 = 5;
+    optional uint32 unk6 = 6;
+}
+
+message Coordinates {
+    optional int64 x = 1;  // Fixed-point, divide by 65536
+    optional int64 y = 2;  // Fixed-point, divide by 65536
 }
 ```
+
+#### Build Structure Command (field 4 with fields 2, 3, 4)
+
+When a worker builds a structure, the command contains:
+
+```
+field 4: {
+  '2': position_index,    // Varies per building type
+  '3': BUILDING_TYPE_ID,  // The structure being built (maps to runtime_session.json)
+  '4': {                  // Coordinates
+    '1': x_coord,         // Signed int64, divide by 65536 for world pos
+    '2': y_coord
+  },
+  '5': 0,
+  '6': 1
+}
+```
+
+**Example - Build Barracks:**
+```json
+{
+  "1": 1,
+  "4": {
+    "2": 786729,
+    "3": 597044510,      // = Barracks (UnitData)
+    "4": {"1": ..., "2": ...},
+    "5": 0,
+    "6": 1
+  }
+}
+```
+
+**Known Building Type IDs:**
+| ID | Building | Base Type |
+|----|----------|-----------|
+| 597044510 | Barracks | UnitData |
+| 1503114586 | MegaResourceA (Supply) | ResourceData |
+
+**Known Spawn Ability IDs:**
+| ID | Ability | Building |
+|----|---------|----------|
+| 749407741 | BarracksSpawn | Barracks |
+| 335308633 | HQSpawn | HQ |
+| 1485475066 | Shrine_Spawn | Shrine |
+| 3191913349 | IronVault_Spawn | Iron Vault |
+| 1954853105 | Arcship_Spawn | Arcship |
+| 2548286134 | CreationChamber_Spawn | Creation Chamber |
+
+#### Spawn Unit Command (field 4 with field 1)
+
+When a production building spawns a unit:
+
+```
+field 4: {
+  '1': SPAWN_ABILITY_ID,  // e.g., 749407741 = BarracksSpawn
+  '4': '',                // Empty
+  '5': 0,
+  '6': 0
+}
+```
+
+**Important limitation:** The spawn command only records the spawn ability, NOT which specific unit type is being trained. For example, BarracksSpawn (749407741) is used for all units from the Barracks - there's no way to distinguish Lancer vs Scout from the replay data alone.
 
 ## Field 4: Spawn Events
 
@@ -197,12 +339,25 @@ These are hash values observed in `target_type` and `ability_id` fields:
 
 *Note: These IDs are likely FNV-1a or similar hashes of internal asset names.*
 
+## What IS Recorded
+
+1. **Building construction**: Building type ID is recorded in field 4.3 (e.g., Barracks = 597044510)
+2. **Attack/move positions**: Coordinates in fields 5-6 of target data
+3. **Control group assignments**: Sequential IDs per player (e.g., 781263783-790)
+4. **Ability usage**: Ability IDs map to runtime_session.json archetypes
+
+## What is NOT Recorded
+
+1. **Unit training type**: Spawn commands only record the spawn ability (e.g., "BarracksSpawn"), not which unit is queued (Lancer vs Scout)
+2. **Resource counts**: Must be simulated from commands
+3. **Unit positions over time**: Only command targets, not continuous tracking
+4. **Game state snapshots**: Pure command log
+5. **Selection state**: Control group IDs exist but selection contents aren't tracked
+
 ## Limitations
 
-1. **No resource tracking**: Resources must be simulated from commands
-2. **No unit positions**: Only target IDs, not coordinates
-3. **No game state snapshots**: Pure command log
-4. **Hash-based IDs**: Entity types use hashed identifiers, not human-readable names
+1. **Hash-based IDs**: Entity types use hashed identifiers requiring runtime_session.json for mapping
+2. **Unknown UI action IDs**: Many target_type values (890022063, 923577301, etc.) are player UI actions not defined in runtime_session.json - likely control groups, camera positions, selection modifiers
 
 ## Decoding Example (Python)
 
@@ -231,7 +386,7 @@ with open('replay.SGReplay', 'rb') as f:
 
 # Decompress
 decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
-data = decompressor.decompress(compressed[10:])  # Skip gzip header
+data = decompressor.decompress(compressed[10:])  # Skip gzip header (10 is common; robust parsers should parse gzip header flags)
 
 # Parse messages
 pos = 0
@@ -240,6 +395,9 @@ while pos < len(data):
     msg_data = data[pos:pos+length]
     pos += length
     # Decode msg_data as protobuf...
+
+# Optional: bytes after the deflate stream (gzip trailer + possible appended protobuf footer)
+unused = decompressor.unused_data
 ```
 
 ## Tools
