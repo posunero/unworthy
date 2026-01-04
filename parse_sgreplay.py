@@ -280,6 +280,9 @@ class SGReplayParser:
                             name = get_nested(name_data, 1)
                             if name and isinstance(name, str):
                                 self.players[pid] = name
+                            else:
+                                # Name is corrupted (dict instead of string), add as Player X
+                                self.players[pid] = f'Player {pid}'
 
         # Second pass: map name and fallback to field 37 if field 45 didn't provide players
         for msg in self.messages[:50]:
@@ -298,6 +301,7 @@ class SGReplayParser:
                 continue
 
             # Fallback: Player info from field 37 (only if not already set from field 45)
+            # Also check for duplicate names since slot numbering may differ
             field37 = pb_get(content, 37)
             if field37:
                 entries = field37 if isinstance(field37, list) else [field37]
@@ -306,13 +310,15 @@ class SGReplayParser:
                         slot = get_nested(entry['v'], 2)
                         name = get_nested(entry['v'], 3)
                         if slot and isinstance(slot, int) and name and isinstance(name, str):
-                            if slot not in self.players:
+                            if slot not in self.players and name not in self.players.values():
                                 self.players[slot] = name
 
         # Fallback: try to get missing player names from footer
         # Footer field 3 contains player results with slot and name
+        # Note: footer slots may not match message pids, so check for duplicate names
         if self.footer and '3' in self.footer:
             players_data = self.footer['3']
+            existing_names = set(self.players.values())
             if isinstance(players_data, list):
                 for p in players_data:
                     if not isinstance(p, dict):
@@ -322,10 +328,14 @@ class SGReplayParser:
                     if slot and isinstance(slot, int):
                         if slot not in self.players:
                             if name and isinstance(name, str):
-                                self.players[slot] = name
+                                # Skip if this name already exists (different slot numbering)
+                                if name not in existing_names:
+                                    self.players[slot] = name
+                                    existing_names.add(name)
                             else:
                                 # Player exists but name is corrupted/missing
                                 self.players[slot] = f"Player {slot}"
+                                existing_names.add(f"Player {slot}")
 
     def _extract_actions(self):
         """Extract all player actions"""
