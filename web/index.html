@@ -628,6 +628,7 @@
                     <input type="text" id="dirInput" placeholder="Or enter custom path..." style="width: 180px; padding: 8px; background: #1a1512; border: 1px solid #3d3028; border-radius: 5px; color: #f0e6dc; font-size: 12px;">
                     <label style="color: #8b7355;">Player:</label>
                     <input type="text" id="playerInput" placeholder="Auto-detect" style="width: 120px; padding: 8px; background: #1a1512; border: 1px solid #3d3028; border-radius: 5px; color: #f0e6dc;">
+                    <button id="allPlayersBtn" style="padding: 8px 15px; background: #2a2018; border: 1px solid #3d3028;">All Players</button>
                     <label style="color: #8b7355;">Patch:</label>
                     <select id="changelistFilter">
                         <option value="">All Patches</option>
@@ -878,9 +879,12 @@
         const dirInput = document.getElementById('dirInput');
         const dirButtons = document.getElementById('dirButtons');
         const refreshSummaryBtn = document.getElementById('refreshSummary');
+        const allPlayersBtn = document.getElementById('allPlayersBtn');
 
         // Currently selected directory
         let selectedDir = null;
+        // All players mode
+        let allPlayersMode = false;
 
         // View switching
         summaryViewBtn.addEventListener('click', () => {
@@ -907,6 +911,7 @@
                 if (options.changelist) params.set('changelist', options.changelist);
                 if (options.player) params.set('player', options.player);
                 if (options.dir) params.set('dir', options.dir);
+                if (options.all_players) params.set('all_players', 'true');
 
                 let url = '/api/summary';
                 if (params.toString()) {
@@ -1021,77 +1026,139 @@
 
             // Overview stats
             const overview = document.getElementById('summaryOverview');
-            overview.innerHTML = `
-                <div class="summary-stat">
-                    <div class="summary-stat-value">${escapeHtml(data.main_player)}</div>
-                    <div class="summary-stat-label">Player</div>
-                </div>
-                <div class="summary-stat">
-                    <div class="summary-stat-value">${data.replays_analyzed || data.total_games}</div>
-                    <div class="summary-stat-label">Games Analyzed</div>
-                </div>
-                <div class="summary-stat">
-                    <div class="summary-stat-value win">${data.wins}</div>
-                    <div class="summary-stat-label">Wins</div>
-                </div>
-                <div class="summary-stat">
-                    <div class="summary-stat-value loss">${data.losses}</div>
-                    <div class="summary-stat-label">Losses</div>
-                </div>
-                <div class="summary-stat">
-                    <div class="summary-stat-value ${getWinrateClass(data.win_rate)}">${data.win_rate.toFixed(1)}%</div>
-                    <div class="summary-stat-label">Win Rate</div>
-                </div>
-            `;
+            if (data.all_players_mode) {
+                overview.innerHTML = `
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${escapeHtml(data.main_player)}</div>
+                        <div class="summary-stat-label">Mode</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${data.replays_analyzed || data.total_games}</div>
+                        <div class="summary-stat-label">Games Analyzed</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${data.total_player_games || 0}</div>
+                        <div class="summary-stat-label">Total Player-Games</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${Object.keys(data.player_stats || {}).length}</div>
+                        <div class="summary-stat-label">Unique Players</div>
+                    </div>
+                `;
+            } else {
+                overview.innerHTML = `
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${escapeHtml(data.main_player)}</div>
+                        <div class="summary-stat-label">Player</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value">${data.replays_analyzed || data.total_games}</div>
+                        <div class="summary-stat-label">Games Analyzed</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value win">${data.wins}</div>
+                        <div class="summary-stat-label">Wins</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value loss">${data.losses}</div>
+                        <div class="summary-stat-label">Losses</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-value ${getWinrateClass(data.win_rate)}">${data.win_rate.toFixed(1)}%</div>
+                        <div class="summary-stat-label">Win Rate</div>
+                    </div>
+                `;
+            }
 
             // Race stats
             const raceStats = document.getElementById('raceStats');
             raceStats.innerHTML = '';
             if (data.race_stats && Object.keys(data.race_stats).length > 0) {
-                Object.entries(data.race_stats).forEach(([race, stats]) => {
-                    raceStats.innerHTML += `
-                        <div class="stat-row">
-                            <span class="stat-row-name">${escapeHtml(race)}</span>
-                            <div class="stat-row-details">
-                                <span class="stat-row-games">${stats.games} games (${stats.pick_rate.toFixed(1)}% pick rate)</span>
-                                <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
-                            </div>
-                        </div>
-                    `;
-                });
+                Object.entries(data.race_stats)
+                    .sort((a, b) => b[1].games - a[1].games)
+                    .forEach(([race, stats]) => {
+                        if (data.all_players_mode) {
+                            raceStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(race)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} picks (${stats.pick_rate.toFixed(1)}%)</span>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            raceStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(race)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} games (${stats.pick_rate.toFixed(1)}% pick rate)</span>
+                                        <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    });
             } else {
                 raceStats.innerHTML = '<div style="color: #666;">No race data</div>';
             }
 
-            // Matchup stats
+            // Matchup stats (or Player stats in all_players_mode)
             const matchupStats = document.getElementById('matchupStats');
+            const matchupCard = matchupStats.closest('.card');
             matchupStats.innerHTML = '';
-            if (data.matchup_stats && Object.keys(data.matchup_stats).length > 0) {
-                Object.entries(data.matchup_stats)
-                    .sort((a, b) => b[1].games - a[1].games)
-                    .forEach(([matchup, stats]) => {
-                        matchupStats.innerHTML += `
-                            <div class="stat-row">
-                                <span class="stat-row-name">${escapeHtml(matchup)}</span>
-                                <div class="stat-row-details">
-                                    <span class="stat-row-games">${stats.games} games</span>
-                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+            if (data.all_players_mode) {
+                matchupCard.querySelector('h2').textContent = 'Top Players';
+                if (data.player_stats && Object.keys(data.player_stats).length > 0) {
+                    Object.entries(data.player_stats)
+                        .sort((a, b) => b[1].games - a[1].games)
+                        .forEach(([name, stats]) => {
+                            matchupStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(name)} <span style="color: #8b7355; font-size: 12px;">(${stats.main_race})</span></span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} games</span>
+                                        <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                    </div>
                                 </div>
-                            </div>
-                        `;
-                    });
+                            `;
+                        });
+                } else {
+                    matchupStats.innerHTML = '<div style="color: #666;">No player data</div>';
+                }
             } else {
-                matchupStats.innerHTML = '<div style="color: #666;">No matchup data</div>';
+                matchupCard.querySelector('h2').textContent = 'Matchup Statistics';
+                if (data.matchup_stats && Object.keys(data.matchup_stats).length > 0) {
+                    Object.entries(data.matchup_stats)
+                        .sort((a, b) => b[1].games - a[1].games)
+                        .forEach(([matchup, stats]) => {
+                            matchupStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(matchup)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} games</span>
+                                        <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                } else {
+                    matchupStats.innerHTML = '<div style="color: #666;">No matchup data</div>';
+                }
             }
 
-            // First buildings by matchup
+            // First buildings by matchup (or by race in all_players_mode)
             const buildingsByMatchup = document.getElementById('buildingsByMatchup');
+            const buildingsCard = buildingsByMatchup.closest('.card');
             buildingsByMatchup.innerHTML = '';
-            if (data.first_buildings_by_matchup && Object.keys(data.first_buildings_by_matchup).length > 0) {
-                Object.entries(data.first_buildings_by_matchup).forEach(([matchup, buildings]) => {
+
+            const buildingsData = data.all_players_mode ? data.first_buildings_by_race : data.first_buildings_by_matchup;
+            buildingsCard.querySelector('h2').textContent = data.all_players_mode ? 'Opening Buildings by Race' : 'Opening Buildings by Matchup';
+
+            if (buildingsData && Object.keys(buildingsData).length > 0) {
+                Object.entries(buildingsData).forEach(([key, buildings]) => {
                     const section = document.createElement('div');
                     section.className = 'matchup-section';
-                    section.innerHTML = `<div class="matchup-title">${escapeHtml(matchup)}</div>`;
+                    section.innerHTML = `<div class="matchup-title">${escapeHtml(key)}</div>`;
 
                     const buildingsDiv = document.createElement('div');
                     Object.entries(buildings)
@@ -1119,10 +1186,36 @@
                 buildingsByMatchup.innerHTML = '<div style="color: #666;">No building data</div>';
             }
 
-            // Opening sequences
+            // Opening sequences (by race in all_players_mode)
             const openingSequences = document.getElementById('openingSequences');
+            const openingCard = openingSequences.closest('.card');
             openingSequences.innerHTML = '';
-            if (data.opening_sequences && Object.keys(data.opening_sequences).length > 0) {
+
+            if (data.all_players_mode && data.opening_sequences_by_race && Object.keys(data.opening_sequences_by_race).length > 0) {
+                openingCard.querySelector('h2').textContent = 'Opening Sequences by Race (First 3 Buildings)';
+                Object.entries(data.opening_sequences_by_race).forEach(([race, sequences]) => {
+                    const section = document.createElement('div');
+                    section.className = 'matchup-section';
+                    section.innerHTML = `<div class="matchup-title">${escapeHtml(race)}</div>`;
+
+                    Object.entries(sequences)
+                        .sort((a, b) => b[1].count - a[1].count)
+                        .slice(0, 5)
+                        .forEach(([sequence, stats]) => {
+                            section.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(sequence)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.count}x (${stats.percentage.toFixed(1)}%)</span>
+                                        <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    openingSequences.appendChild(section);
+                });
+            } else if (data.opening_sequences && Object.keys(data.opening_sequences).length > 0) {
+                openingCard.querySelector('h2').textContent = 'Opening Sequences (First 3 Buildings)';
                 Object.entries(data.opening_sequences)
                     .sort((a, b) => b[1].count - a[1].count)
                     .slice(0, 10)
@@ -1141,10 +1234,35 @@
                 openingSequences.innerHTML = '<div style="color: #666;">No opening sequence data</div>';
             }
 
-            // First stormgate reward
+            // First stormgate reward (by race in all_players_mode)
             const firstRewardStats = document.getElementById('firstRewardStats');
+            const rewardCard = firstRewardStats.closest('.card');
             firstRewardStats.innerHTML = '';
-            if (data.first_reward_stats && Object.keys(data.first_reward_stats).length > 0) {
+
+            if (data.all_players_mode && data.first_reward_by_race && Object.keys(data.first_reward_by_race).length > 0) {
+                rewardCard.querySelector('h2').textContent = 'First Stormgate Reward by Race';
+                Object.entries(data.first_reward_by_race).forEach(([race, rewards]) => {
+                    const section = document.createElement('div');
+                    section.className = 'matchup-section';
+                    section.innerHTML = `<div class="matchup-title">${escapeHtml(race)}</div>`;
+
+                    Object.entries(rewards)
+                        .sort((a, b) => b[1].count - a[1].count)
+                        .forEach(([reward, stats]) => {
+                            section.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(reward)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.count}x (${stats.percentage.toFixed(1)}%)</span>
+                                        <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    firstRewardStats.appendChild(section);
+                });
+            } else if (data.first_reward_stats && Object.keys(data.first_reward_stats).length > 0) {
+                rewardCard.querySelector('h2').textContent = 'First Stormgate Reward';
                 Object.entries(data.first_reward_stats)
                     .sort((a, b) => b[1].count - a[1].count)
                     .forEach(([reward, stats]) => {
@@ -1169,60 +1287,100 @@
                 Object.entries(data.map_stats)
                     .sort((a, b) => b[1].games - a[1].games)
                     .forEach(([map, stats]) => {
-                        mapStats.innerHTML += `
-                            <div class="stat-row">
-                                <span class="stat-row-name">${escapeHtml(map)}</span>
-                                <div class="stat-row-details">
-                                    <span class="stat-row-games">${stats.games} games</span>
-                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                        if (data.all_players_mode) {
+                            mapStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(map)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} games (${stats.percentage.toFixed(1)}%)</span>
+                                    </div>
                                 </div>
-                            </div>
-                        `;
+                            `;
+                        } else {
+                            mapStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(map)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} games</span>
+                                        <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                    </div>
+                                </div>
+                            `;
+                        }
                     });
             } else {
                 mapStats.innerHTML = '<div style="color: #666;">No map data</div>';
             }
 
-            // Teammate stats
+            // Teammate stats (hidden in all_players_mode)
             const teammateStats = document.getElementById('teammateStats');
+            const teammateCard = teammateStats.closest('.card');
             teammateStats.innerHTML = '';
-            if (data.teammate_stats && Object.keys(data.teammate_stats).length > 0) {
-                Object.entries(data.teammate_stats)
-                    .sort((a, b) => b[1].games - a[1].games)
-                    .forEach(([name, stats]) => {
-                        teammateStats.innerHTML += `
-                            <div class="stat-row">
-                                <span class="stat-row-name">${escapeHtml(name)}</span>
-                                <div class="stat-row-details">
-                                    <span class="stat-row-games">${stats.games} games</span>
-                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
-                                </div>
-                            </div>
-                        `;
-                    });
+            if (data.all_players_mode) {
+                teammateCard.style.display = 'none';
             } else {
-                teammateStats.innerHTML = '<div style="color: #666;">No teammate data (1v1 only)</div>';
+                teammateCard.style.display = 'block';
+                if (data.teammate_stats && Object.keys(data.teammate_stats).length > 0) {
+                    Object.entries(data.teammate_stats)
+                        .sort((a, b) => b[1].games - a[1].games)
+                        .forEach(([name, stats]) => {
+                            teammateStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">${escapeHtml(name)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} games</span>
+                                        <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                } else {
+                    teammateStats.innerHTML = '<div style="color: #666;">No teammate data (1v1 only)</div>';
+                }
             }
 
             // Game length stats
             const gameLengthStats = document.getElementById('gameLengthStats');
             if (data.game_length_stats && data.game_length_stats.avg_formatted) {
-                gameLengthStats.innerHTML = `
-                    <div class="summary-overview" style="margin-bottom: 0;">
-                        <div class="summary-stat">
-                            <div class="summary-stat-value">${data.game_length_stats.avg_formatted}</div>
-                            <div class="summary-stat-label">Average</div>
+                if (data.all_players_mode) {
+                    const shortestMins = Math.floor(data.game_length_stats.shortest / 60);
+                    const shortestSecs = Math.floor(data.game_length_stats.shortest % 60);
+                    const longestMins = Math.floor(data.game_length_stats.longest / 60);
+                    const longestSecs = Math.floor(data.game_length_stats.longest % 60);
+                    gameLengthStats.innerHTML = `
+                        <div class="summary-overview" style="margin-bottom: 0;">
+                            <div class="summary-stat">
+                                <div class="summary-stat-value">${data.game_length_stats.avg_formatted}</div>
+                                <div class="summary-stat-label">Average</div>
+                            </div>
+                            <div class="summary-stat">
+                                <div class="summary-stat-value">${shortestMins}:${shortestSecs.toString().padStart(2, '0')}</div>
+                                <div class="summary-stat-label">Shortest</div>
+                            </div>
+                            <div class="summary-stat">
+                                <div class="summary-stat-value">${longestMins}:${longestSecs.toString().padStart(2, '0')}</div>
+                                <div class="summary-stat-label">Longest</div>
+                            </div>
                         </div>
-                        <div class="summary-stat">
-                            <div class="summary-stat-value win">${data.game_length_stats.avg_win_formatted}</div>
-                            <div class="summary-stat-label">Avg Win</div>
+                    `;
+                } else {
+                    gameLengthStats.innerHTML = `
+                        <div class="summary-overview" style="margin-bottom: 0;">
+                            <div class="summary-stat">
+                                <div class="summary-stat-value">${data.game_length_stats.avg_formatted}</div>
+                                <div class="summary-stat-label">Average</div>
+                            </div>
+                            <div class="summary-stat">
+                                <div class="summary-stat-value win">${data.game_length_stats.avg_win_formatted}</div>
+                                <div class="summary-stat-label">Avg Win</div>
+                            </div>
+                            <div class="summary-stat">
+                                <div class="summary-stat-value loss">${data.game_length_stats.avg_loss_formatted}</div>
+                                <div class="summary-stat-label">Avg Loss</div>
+                            </div>
                         </div>
-                        <div class="summary-stat">
-                            <div class="summary-stat-value loss">${data.game_length_stats.avg_loss_formatted}</div>
-                            <div class="summary-stat-label">Avg Loss</div>
-                        </div>
-                    </div>
-                `;
+                    `;
+                }
             } else {
                 gameLengthStats.innerHTML = '<div style="color: #666;">No game length data</div>';
             }
@@ -1233,15 +1391,26 @@
             if (data.changelist_stats && Object.keys(data.changelist_stats).length > 0) {
                 Object.entries(data.changelist_stats)
                     .forEach(([cl, stats]) => {
-                        changelistStats.innerHTML += `
-                            <div class="stat-row">
-                                <span class="stat-row-name">CL ${escapeHtml(cl)}</span>
-                                <div class="stat-row-details">
-                                    <span class="stat-row-games">${stats.games} games</span>
-                                    <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                        if (data.all_players_mode) {
+                            changelistStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">CL ${escapeHtml(cl)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} games (${stats.percentage.toFixed(1)}%)</span>
+                                    </div>
                                 </div>
-                            </div>
-                        `;
+                            `;
+                        } else {
+                            changelistStats.innerHTML += `
+                                <div class="stat-row">
+                                    <span class="stat-row-name">CL ${escapeHtml(cl)}</span>
+                                    <div class="stat-row-details">
+                                        <span class="stat-row-games">${stats.games} games</span>
+                                        <span class="stat-row-winrate ${getWinrateClass(stats.win_rate)}">${stats.win_rate.toFixed(1)}% WR</span>
+                                    </div>
+                                </div>
+                            `;
+                        }
                     });
             } else {
                 changelistStats.innerHTML = '<div style="color: #666;">No patch data</div>';
@@ -1252,8 +1421,9 @@
         function getCurrentFilterOptions() {
             return {
                 changelist: changelistFilter.value || null,
-                player: playerInput.value.trim() || null,
+                player: allPlayersMode ? null : (playerInput.value.trim() || null),
                 dir: dirInput.value.trim() || selectedDir || null,
+                all_players: allPlayersMode,
             };
         }
 
@@ -1283,6 +1453,29 @@
         refreshSummaryBtn.addEventListener('click', () => {
             loadSummary(getCurrentFilterOptions());
         });
+
+        // All Players button
+        allPlayersBtn.addEventListener('click', () => {
+            allPlayersMode = !allPlayersMode;
+            updateAllPlayersButtonStyle();
+            loadSummary(getCurrentFilterOptions());
+        });
+
+        function updateAllPlayersButtonStyle() {
+            if (allPlayersMode) {
+                allPlayersBtn.style.background = '#3b82f6';
+                allPlayersBtn.style.borderColor = '#3b82f6';
+                allPlayersBtn.style.color = '#fff';
+                playerInput.disabled = true;
+                playerInput.style.opacity = '0.5';
+            } else {
+                allPlayersBtn.style.background = '#2a2018';
+                allPlayersBtn.style.borderColor = '#3d3028';
+                allPlayersBtn.style.color = '#f0e6dc';
+                playerInput.disabled = false;
+                playerInput.style.opacity = '1';
+            }
+        }
 
         // Helper to group player slots by team
         function groupByTeam(playerSlots, playerTeams) {

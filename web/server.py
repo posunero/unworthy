@@ -329,6 +329,199 @@ def compute_summary(replays_data, main_player):
 
     return result
 
+
+def compute_summary_all_players(replays_data):
+    """Compute aggregate statistics across all players."""
+    stats = {
+        'total_games': 0,
+        # Race stats (aggregate)
+        'race_picks': defaultdict(int),
+        # First 3 buildings by race
+        'first_buildings_by_race': defaultdict(lambda: defaultdict(lambda: {'count': 0, 'wins': 0})),
+        # First stormgate reward by race
+        'first_reward_by_race': defaultdict(lambda: defaultdict(lambda: {'count': 0, 'wins': 0})),
+        # Map stats
+        'map_games': defaultdict(int),
+        # Game length stats
+        'game_lengths': [],
+        # Changelist breakdown
+        'changelist_games': defaultdict(int),
+        # Opening sequences by race
+        'opening_sequences_by_race': defaultdict(lambda: defaultdict(lambda: {'count': 0, 'wins': 0})),
+        # Player stats
+        'player_games': defaultdict(int),
+        'player_wins': defaultdict(int),
+        'player_races': defaultdict(lambda: defaultdict(int)),
+    }
+
+    seen_games = set()
+
+    for replay in replays_data:
+        players = replay.get('players', {})
+        teams = replay.get('player_teams', {})
+        factions = replay.get('player_factions', {})
+        result = replay.get('game_result', {})
+        buildings = replay.get('building_orders', {})
+        rewards = replay.get('stormgate_rewards', {})
+        changelist = replay.get('header', {}).get('changelist', 0)
+        map_name = replay.get('map', 'Unknown')
+        duration = replay.get('duration_seconds', 0)
+        player_results = result.get('player_results', {})
+
+        # Use a unique identifier for each game to avoid double counting
+        game_id = f"{changelist}_{map_name}_{duration}_{'-'.join(sorted(players.values()))}"
+        if game_id not in seen_games:
+            seen_games.add(game_id)
+            stats['total_games'] += 1
+            stats['map_games'][map_name] += 1
+            if duration > 0:
+                stats['game_lengths'].append(duration)
+            stats['changelist_games'][changelist] += 1
+
+        # Process each player
+        for slot, name in players.items():
+            slot_int = int(slot) if isinstance(slot, str) else slot
+            faction = factions.get(slot) or factions.get(slot_int) or 'Unknown'
+
+            # Player result
+            player_result = player_results.get(str(slot)) or player_results.get(slot)
+            is_win = player_result == 'win'
+
+            # Track player stats
+            stats['player_games'][name] += 1
+            if is_win:
+                stats['player_wins'][name] += 1
+            stats['player_races'][name][faction] += 1
+
+            # Race picks
+            stats['race_picks'][faction] += 1
+
+            # First 3 buildings
+            player_buildings = buildings.get(slot) or buildings.get(str(slot)) or []
+            prod_buildings = [b for b in player_buildings if not b.get('inferred') and
+                             b.get('building_name') not in ['Therium Extractor', 'Therium Deposit', 'Supply', 'Link Node', 'PowerBank', 'Collection Array']]
+
+            first_3 = [b.get('building_name', 'Unknown') for b in prod_buildings[:3]]
+            if first_3:
+                for i, bldg in enumerate(first_3):
+                    key = f"B{i+1}: {bldg}"
+                    stats['first_buildings_by_race'][faction][key]['count'] += 1
+                    if is_win:
+                        stats['first_buildings_by_race'][faction][key]['wins'] += 1
+
+                # Opening sequence
+                opening = ' → '.join(first_3)
+                stats['opening_sequences_by_race'][faction][opening]['count'] += 1
+                if is_win:
+                    stats['opening_sequences_by_race'][faction][opening]['wins'] += 1
+
+            # First stormgate reward
+            player_rewards = rewards.get(slot) or rewards.get(str(slot)) or []
+            if player_rewards:
+                first_reward = player_rewards[0].get('reward_name', 'Unknown')
+                stats['first_reward_by_race'][faction][first_reward]['count'] += 1
+                if is_win:
+                    stats['first_reward_by_race'][faction][first_reward]['wins'] += 1
+
+    result = {
+        'main_player': 'All Players',
+        'all_players_mode': True,
+        'total_games': stats['total_games'],
+        'total_player_games': sum(stats['player_games'].values()),
+        'race_stats': {},
+        'first_buildings_by_race': {},
+        'first_reward_by_race': {},
+        'opening_sequences_by_race': {},
+        'map_stats': {},
+        'changelist_stats': {},
+        'game_length_stats': {},
+        'player_stats': {},
+    }
+
+    # Race stats
+    total_race_picks = sum(stats['race_picks'].values())
+    for race, count in stats['race_picks'].items():
+        result['race_stats'][race] = {
+            'games': count,
+            'pick_rate': count / total_race_picks * 100 if total_race_picks > 0 else 0,
+        }
+
+    # First buildings by race
+    for race, bldgs in stats['first_buildings_by_race'].items():
+        race_total = stats['race_picks'].get(race, 1)
+        result['first_buildings_by_race'][race] = {}
+        for bldg, data in sorted(bldgs.items(), key=lambda x: -x[1]['count'])[:15]:
+            result['first_buildings_by_race'][race][bldg] = {
+                'count': data['count'],
+                'percentage': data['count'] / race_total * 100 if race_total > 0 else 0,
+                'wins': data['wins'],
+                'win_rate': data['wins'] / data['count'] * 100 if data['count'] > 0 else 0,
+            }
+
+    # First reward by race
+    for race, rewards_data in stats['first_reward_by_race'].items():
+        race_total = sum(d['count'] for d in rewards_data.values())
+        result['first_reward_by_race'][race] = {}
+        for reward, data in sorted(rewards_data.items(), key=lambda x: -x[1]['count'])[:10]:
+            result['first_reward_by_race'][race][reward] = {
+                'count': data['count'],
+                'percentage': data['count'] / race_total * 100 if race_total > 0 else 0,
+                'wins': data['wins'],
+                'win_rate': data['wins'] / data['count'] * 100 if data['count'] > 0 else 0,
+            }
+
+    # Opening sequences by race
+    for race, sequences in stats['opening_sequences_by_race'].items():
+        race_total = stats['race_picks'].get(race, 1)
+        result['opening_sequences_by_race'][race] = {}
+        for seq, data in sorted(sequences.items(), key=lambda x: -x[1]['count'])[:10]:
+            result['opening_sequences_by_race'][race][seq] = {
+                'count': data['count'],
+                'percentage': data['count'] / race_total * 100 if race_total > 0 else 0,
+                'wins': data['wins'],
+                'win_rate': data['wins'] / data['count'] * 100 if data['count'] > 0 else 0,
+            }
+
+    # Map stats
+    for map_name, games in stats['map_games'].items():
+        result['map_stats'][map_name] = {
+            'games': games,
+            'percentage': games / stats['total_games'] * 100 if stats['total_games'] > 0 else 0,
+        }
+
+    # Changelist stats
+    for cl in sorted(stats['changelist_games'].keys(), reverse=True):
+        games = stats['changelist_games'][cl]
+        result['changelist_stats'][cl] = {
+            'games': games,
+            'percentage': games / stats['total_games'] * 100 if stats['total_games'] > 0 else 0,
+        }
+
+    # Game length stats
+    if stats['game_lengths']:
+        avg_length = sum(stats['game_lengths']) / len(stats['game_lengths'])
+        result['game_length_stats'] = {
+            'avg_seconds': avg_length,
+            'avg_formatted': f"{int(avg_length // 60)}:{int(avg_length % 60):02d}",
+            'shortest': min(stats['game_lengths']),
+            'longest': max(stats['game_lengths']),
+        }
+
+    # Top players by games
+    for name, games in sorted(stats['player_games'].items(), key=lambda x: -x[1])[:20]:
+        wins = stats['player_wins'].get(name, 0)
+        races = dict(stats['player_races'].get(name, {}))
+        main_race = max(races.items(), key=lambda x: x[1])[0] if races else 'Unknown'
+        result['player_stats'][name] = {
+            'games': games,
+            'wins': wins,
+            'win_rate': wins / games * 100 if games > 0 else 0,
+            'main_race': main_race,
+        }
+
+    return result
+
+
 # Default to Stormgate's saved replays folder on Windows
 def get_default_replays_dir():
     """Get the default Stormgate replays directory."""
@@ -367,6 +560,7 @@ class ReplayHandler(SimpleHTTPRequestHandler):
         limit = int(params.get('limit', ['30'])[0])
         selected_player = params.get('player', [None])[0]
         selected_dir = params.get('dir', [None])[0]
+        all_players_mode = params.get('all_players', [''])[0] == 'true'
 
         # Available directories
         available_dirs = [
@@ -454,9 +648,9 @@ class ReplayHandler(SimpleHTTPRequestHandler):
         # Limit to requested number
         replays_data = replays_data[:limit]
 
-        if not main_player or not replays_data:
+        if not replays_data:
             self.send_json({
-                'error': 'No replays found or unable to identify main player',
+                'error': 'No replays found',
                 'changelists': sorted(changelists, reverse=True),
                 'total_replays_available': len(replay_files),
                 'available_players': all_players,
@@ -465,7 +659,20 @@ class ReplayHandler(SimpleHTTPRequestHandler):
             return
 
         # Compute summary statistics
-        summary = compute_summary(replays_data, main_player)
+        if all_players_mode:
+            summary = compute_summary_all_players(replays_data)
+        else:
+            if not main_player:
+                self.send_json({
+                    'error': 'Unable to identify main player',
+                    'changelists': sorted(changelists, reverse=True),
+                    'total_replays_available': len(replay_files),
+                    'available_players': all_players,
+                    'available_dirs': available_dirs,
+                })
+                return
+            summary = compute_summary(replays_data, main_player)
+
         summary['changelists'] = sorted(changelists, reverse=True)
         summary['total_replays_available'] = len(replay_files)
         summary['replays_analyzed'] = len(replays_data)
