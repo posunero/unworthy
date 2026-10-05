@@ -107,6 +107,8 @@ class SGReplayParser:
         # Some replays include an uncompressed protobuf footer after the gzip trailer.
         self.footer_protobuf = None  # decoded protobuf dict (typed)
         self.footer = None  # simplified footer protobuf (JSON-friendly)
+        self.verified = None
+        self.verified_summary = None
 
     def load(self):
         """Load and decompress the replay file"""
@@ -218,6 +220,20 @@ class SGReplayParser:
 
     def parse(self):
         """Parse all messages from the replay"""
+        if self.header.get('changelist') == 107842:
+            from recovered_replay import export_recovered
+            from verified_summary import dashboard_summary
+            self.verified = export_recovered(self.filepath)
+            self.verified_summary = dashboard_summary(self.verified, self.filepath)
+            self.players = self.verified_summary['players']
+            self.actions = self.verified_summary['actions']
+            self.chat = self.verified_summary['chat']
+            self.map_name = self.verified_summary['map']
+            self.messages = [e['decoded'] for e in self.verified['events']]
+            self.raw_messages = [{'length': len(bytes.fromhex(e['rawHex'])), 'raw': bytes.fromhex(e['rawHex'])} for e in self.verified['events']]
+            self.max_sync_time = self.verified['footer']['maxSimTime']
+            self.header = self.verified['header']
+            return self
         pos = 0
         while pos < len(self.raw_data):
             length, pos = decode_varint(self.raw_data, pos)
@@ -514,6 +530,8 @@ class SGReplayParser:
         print("=" * 80)
         print("STORMGATE REPLAY ANALYSIS")
         print("=" * 80)
+        if self.verified_summary is not None:
+            print(self.verified_summary['analysis_note'])
 
         # File info
         print(f"\nFile: {os.path.basename(self.filepath)}")
@@ -564,7 +582,7 @@ class SGReplayParser:
 
         # APM per player
         print(f"\n{'='*40}")
-        print("APM (Actions Per Minute)")
+        print("GAMEPLAY COMMANDS PER MINUTE" if self.verified_summary is not None else "APM (Actions Per Minute)")
         print(f"{'='*40}")
         player_actions = defaultdict(list)
         for a in self.actions:
@@ -659,6 +677,8 @@ class SGReplayParser:
            (Field 31.1 contains slot of a player on losing team)
         2. Fallback: Use footer field 3 markers (less reliable)
         """
+        if self.verified_summary is not None:
+            return self.verified_summary['game_result']
         result = {
             'result': 'unknown',
             'winners': [],
@@ -858,6 +878,8 @@ class SGReplayParser:
         Note: Only includes actual structures, not unit spawns.
         Deduplicates by position_index to count each building only once.
         """
+        if self.verified_summary is not None:
+            return self.verified_summary['building_orders']
         player_buildings = defaultdict(list)
         # Track seen buildings by (player_id, position_index, building_type) to deduplicate
         seen_buildings = set()
@@ -1027,6 +1049,8 @@ class SGReplayParser:
             - upgrade_id: numeric ability ID
             - upgrade_name: resolved name
         """
+        if self.verified_summary is not None:
+            return self.verified_summary['player_upgrades']
         player_upgrades = defaultdict(list)
         # Track seen upgrades by (player_id, ability_id) to deduplicate
         seen_upgrades = set()
@@ -1099,6 +1123,8 @@ class SGReplayParser:
             - reward_id: numeric ability ID
             - reward_name: resolved friendly name
         """
+        if self.verified_summary is not None:
+            return self.verified_summary['stormgate_rewards']
         player_rewards = defaultdict(list)
         # Track seen rewards by (player_id, ability_id) to deduplicate
         seen_rewards = set()
@@ -1192,6 +1218,8 @@ class SGReplayParser:
             - ability_id: spawn ability ID
             - building: building/source name (e.g., 'Shrine', 'Barracks')
         """
+        if self.verified_summary is not None:
+            return self.verified_summary['unit_production_timeline']
         player_production = defaultdict(list)
 
         for a in self.actions:
@@ -1238,6 +1266,8 @@ class SGReplayParser:
 
         Returns dict mapping player slot to dict of building -> count.
         """
+        if self.verified_summary is not None:
+            return self.verified_summary['unit_production']
         production = self.get_unit_production()
         result = {}
 
@@ -1258,6 +1288,8 @@ class SGReplayParser:
         Returns dict mapping player slot (int) to faction name.
         Factions: 'Vanguard', 'Celestial', 'Infernal', or 'Unknown'
         """
+        if self.verified_summary is not None:
+            return self.verified_summary['player_factions']
         # Definitive faction markers (first match wins)
         VANGUARD_MARKERS = ['Barracks', 'MechBay', 'HQSpawn', 'HQTier', 'Bob_', 'Vulcan', 'Hedgehog', 'Atlas', 'Hornet', 'Helicarrier']
         CELESTIAL_MARKERS = ['Arcship', 'CreationChamber', 'Kri', 'Prism', 'Animancer', 'Saber', 'Vector', 'Celestial_', 'PowerSurge']
@@ -1311,6 +1343,8 @@ class SGReplayParser:
         Returns dict mapping player_id (int) to team number (int).
         Team info comes from footer, mapped via player names.
         """
+        if self.verified_summary is not None:
+            return self.verified_summary['player_teams']
         # Build name -> team mapping from footer
         name_to_team = {}
         if self.footer and '3' in self.footer:
@@ -1337,6 +1371,13 @@ class SGReplayParser:
 
     def to_json(self, include_actions: bool = False, *, include_messages: bool = False) -> dict:
         """Export as JSON-serializable dict"""
+        if self.verified_summary is not None:
+            result = dict(self.verified_summary)
+            if not include_actions:
+                result.pop('actions', None)
+            if include_messages:
+                result['messages'] = self.verified['events']
+            return result
         game_result = self.get_game_result()
         player_factions = self.get_player_factions()
         building_orders = self.get_building_orders()

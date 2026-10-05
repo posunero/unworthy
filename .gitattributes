@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+assets/protocols/*.json linguist-generated=true
+assets/protocols/*.pb binary
+docs/ACTIONS.md linguist-generated=true

@@ -25,6 +25,10 @@ buildings.json
 
 # Python
 __pycache__/
+.pytest_cache/
+.ruff_cache/
+decoded.json
+timeline.txt
 *.py[cod]
 *$py.class
 *.so

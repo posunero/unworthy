@@ -1,7 +1,7 @@
 [project]
 name = "sgreplay-parser"
-version = "0.0.1"
-description = "Stormgate replay parser with web UI"
+version = "0.1.0"
+description = "Stormgate replay decoding with recovered schemas, action provenance, and a local dashboard"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -10,9 +10,10 @@ authors = [
 ]
 keywords = ["stormgate", "replay", "parser", "esports"]
 
-dependencies = []
+dependencies = ["protobuf>=4.25,<8"]
 
 [project.optional-dependencies]
+recovered = [] # Compatibility alias; recovered parsing is now included.
 dev = [
     "pyinstaller>=6.0",
     "pytest>=8.0",
@@ -20,13 +21,14 @@ dev = [
 
 [project.scripts]
 sgreplay-parser = "parse_sgreplay:main"
+sgreplay-decode = "recovered_replay:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+only-include = ["parse_sgreplay.py", "protobuf.py", "ability_lookup.py", "entity_tracker.py", "replay_analyzers.py", "recovered_replay.py", "verified_summary.py", "assets", "web"]
 
 [tool.uv]
 dev-dependencies = [

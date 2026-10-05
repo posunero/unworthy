@@ -1,180 +1,101 @@
-# Stormgate Replay Parser
+# Unworthy · Stormgate Replay Analyzer
 
-A Python tool for parsing Stormgate (.SGReplay) replay files with a web-based stats dashboard. Extracts player information, game details, actions, build orders, and provides comprehensive statistics.
+Understand what a replay actually records: commands, selections, targets, queues,
+control groups, targeting transitions, chat, and system events.
 
-## Features
+**Build 107842 now uses recovered game schemas.** The normal CLI and local dashboard
+use the verified decoder automatically for that build. Exact-map ability semantics
+are available for the bundled Ashen Boneyard runtime; other maps retain named
+protocol fields and raw IDs. Older builds use the legacy heuristic parser.
 
-- **Web Dashboard** - Interactive stats viewer with charts and filtering
-- **Player Statistics** - Win rates, matchup analysis, race stats
-- **All Players Mode** - Aggregate stats across all players in your replays
-- **Build Order Tracking** - Opening buildings, sequences, and timing
-- **Stormgate Rewards** - Track first reward choices and win rates
-- **APM Analysis** - Actions per minute with timeline charts
-- **Replay Parsing** - Full action timeline, chat logs, unit production
+## Quick start
 
-## Installation
-
-1. Clone this repository
-2. Install dependencies with uv:
-```bash
-uv sync
-```
-
-Or with pip:
-```bash
-pip install -r requirements.txt
-```
-
-## Web Dashboard
-
-The easiest way to use the parser is through the web dashboard:
+Requires Python 3.11 or newer.
 
 ```bash
-uv run python web/server.py
+git clone https://github.com/posunero/unworthy.git
+cd unworthy
+python -m pip install -e .
+python parse_sgreplay.py path/to/replay.SGReplay --json
 ```
 
-This starts a local server at http://localhost:8080 and opens your browser.
+Or use `uv sync` and prefix commands with `uv run`.
 
-### Summary View
-
-The default view shows aggregate statistics:
-
-- **Player Stats** - Games played, wins, losses, win rate
-- **Race Statistics** - Pick rates and win rates by faction
-- **Matchup Analysis** - Performance against each enemy race
-- **Opening Buildings** - Most common first buildings by matchup
-- **Opening Sequences** - Common build order patterns
-- **Stormgate Rewards** - First reward choice statistics
-- **Map Statistics** - Win rates by map
-- **Game Length** - Average duration for wins vs losses
-
-### All Players Mode
-
-Click the "All Players" button to see aggregate stats across all players in your replays:
-
-- Race popularity across all games
-- Most common openings by race
-- Top players by games played
-- Map and patch usage statistics
-
-### Single Replay View
-
-Switch to "Single Replay" to analyze individual games:
-
-- Game overview (map, duration, winner)
-- Player details with APM and faction
-- APM over time chart
-- Production timeline
-- Building orders for each player
-- Upgrades and research
-- Unit production summary
-- Chat log
-- Full action timeline with filtering
-
-### Filtering
-
-- **Directory** - Select which replay folder to analyze
-- **Player** - Focus on a specific player's stats
-- **Patch** - Filter by game version (changelist)
-
-## Command Line Usage
-
-### Basic Analysis
+### Local dashboard
 
 ```bash
-uv run python parse_sgreplay.py path/to/replay.SGReplay
+python web/server.py
 ```
 
-Example output:
-```
-=== Stormgate Replay Analysis ===
+Open the local address printed by the server (default port 8080). Select a replay
+folder or inspect one match. Windows replays normally live in
+`%LOCALAPPDATA%\Stormgate\Saved\Replays`.
 
-Game Info:
-  Map: DesolateTemple
-  Duration: 13:28
-  Changelist: 107125
-
-Players:
-  1. PlayerOne (Vanguard) - Victory
-  2. PlayerTwo (Infernal) - Defeat
-
-Actions by Player:
-  PlayerOne: 2,876 actions (213.4 APM)
-  PlayerTwo: 3,012 actions (223.5 APM)
-```
-
-### Export to JSON
+### Complete decoded export
 
 ```bash
-uv run python parse_sgreplay.py replay.SGReplay --json
+python recovered_replay.py path/to/replay.SGReplay --output decoded.json --text timeline.txt
 ```
 
-Creates `replay_actions.json` with all parsed data.
+Installed command: `sgreplay-decode`. The export includes every raw record, its
+named fields, observed selections, resolved ability/command pairs, provenance,
+and coverage counts. The readable timeline separates gameplay commands from
+UI, targeting, chat, selections, and system traffic.
 
-### Quiet Mode
+## What is supported
+
+| Capability | Status |
+|---|---|
+| Container, gzip integrity, footer boundaries | Verified v2 / build 107842 |
+| Network action variants | All 43 decoded from recovered descriptors |
+| Participant action variants | All 7, including packed selection/control-group IDs |
+| Map dispatch surface | 65 explicit comparisons inventoried; unresolved names remain numeric |
+| Ability commands | Hash + command index, resolved against the exact matching map catalog |
+| Coordinates | Signed int32 / 16,384 for the matched catalog |
+| Selection tracking | Recorded changes per participant and selection index |
+| Results | Footer result enum; absent means undecided |
+| Older builds | Legacy heuristic behavior, not validated by the new schema |
+| Movement paths, damage, resources, successful completion | Require simulation; not inferred from command counts |
+
+A build/train/research event is a **request**, not proof of completion. Smart
+orders require world state to determine their eventual behavior. UI string hashes
+and some unused map-handler meanings remain unresolved. Zero unknown wire fields
+is a coverage check, not a claim of perfect gameplay reconstruction.
+
+## Why this decoding is different
+
+The old format assumptions confused connection records with spawns, team fields
+with results, and UI/map data with ability IDs. The new path follows the native
+recording writer and two recovered protobuf descriptors. It preserves optional
+presence, validates complete records, and gates gameplay names on map runtime hash.
+
+- [Replay format](SGREPLAY_FORMAT.md)
+- [All protocol actions and map dispatcher entries](docs/ACTIONS.md)
+- [Native recording path, evidence, and remaining gaps](docs/REVERSE_ENGINEERING.md)
+- [Contribution and validation guide](CONTRIBUTING.md)
+
+## Development
 
 ```bash
-uv run python parse_sgreplay.py replay.SGReplay --json --quiet
+python -m pip install -e ".[dev]"
+python -m pytest -q
+python scripts/export_protocol_reference.py
 ```
 
-### Custom Output Path
+CI runs on Windows and Linux with Python 3.11 and 3.14. Synthetic replay fixtures
+cover every network variant, corruption, optional flags, signed coordinates,
+ability command indices, map-version gating, and dashboard integration. Personal
+replays are ignored by Git; optional local replay checks skip when absent.
 
-```bash
-uv run python parse_sgreplay.py replay.SGReplay --json --output custom_output.json
-```
+| File | Purpose |
+|---|---|
+| `recovered_replay.py` | Strict container and descriptor decoding; readable timeline |
+| `verified_summary.py` | Verified records adapted for the existing dashboard |
+| `parse_sgreplay.py` | Shared CLI and legacy compatibility |
+| `assets/protocols/` | Recovered descriptors and versioned map catalog |
+| `scripts/build_action_catalog.py` | Reproducible catalog extraction |
+| `web/` | Local dashboard |
+| `tests/` | Public synthetic fixtures and regression tests |
 
-## Replay Locations
-
-The parser automatically looks for replays in:
-
-- **Windows**: `%LOCALAPPDATA%\Stormgate\Saved\Replays`
-- **Project folder**: `./replays/`
-
-## Replay Format
-
-See [SGREPLAY_FORMAT.md](SGREPLAY_FORMAT.md) for detailed documentation of the replay file format.
-
-Key points:
-- Stormgate replays are **command-based** (similar to StarCraft 2)
-- They record player inputs/commands, not game state
-- Player resources are NOT stored (must be simulated)
-- Unit positions are NOT continuously tracked
-
-## Limitations
-
-- **No resource tracking**: Player resources must be simulated from build commands
-- **No unit positions**: Only target coordinates for move/attack commands
-- **Hash-based IDs**: Some entity and ability types use hashed identifiers
-
-## File Structure
-
-```
-.
-├── parse_sgreplay.py     # Main parser module
-├── protobuf.py           # Protobuf decoding utilities
-├── web/
-│   ├── server.py         # Web server for stats dashboard
-│   └── index.html        # Dashboard UI
-├── assets/
-│   └── runtime_session.json  # Game data mappings
-├── SGREPLAY_FORMAT.md    # Replay format documentation
-└── README.md             # This file
-```
-
-## Building Executable
-
-To build a standalone Windows executable:
-
-```bash
-uv run pyinstaller --onefile \
-  --add-data "web;web" \
-  --add-data "assets;assets" \
-  --name "sgreplay_parser" \
-  parse_sgreplay.py
-```
-
-The executable will be in `dist/sgreplay_parser.exe`.
-
-## License
-
-MIT License
+The analyzer code is MIT-licensed. Stormgate and the recovered schema/catalog
+metadata originate from Frost Giant Studios; this project is unofficial.

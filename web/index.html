@@ -712,6 +712,7 @@
             </div>
 
         <div id="replayInfo" class="replay-info">
+            <div id="analysisNote" class="card" style="border-left: 3px solid #d4a574; line-height: 1.6;"></div>
             <!-- Game Overview -->
             <div class="card">
                 <h2>Game Overview</h2>
@@ -747,7 +748,7 @@
 
             <!-- APM Over Time -->
             <div class="card">
-                <h2>APM Over Time</h2>
+                <h2>Command Rate Over Time</h2>
                 <div class="chart-container">
                     <div id="apmChart" style="height: 300px;"></div>
                 </div>
@@ -755,7 +756,7 @@
 
             <!-- Production Timeline -->
             <div class="card">
-                <h2>Production Timeline</h2>
+                <h2>Production Requests</h2>
                 <div class="chart-container">
                     <div id="spawnChart" style="height: 200px;"></div>
                 </div>
@@ -763,13 +764,13 @@
 
             <!-- Building Orders -->
             <div class="card">
-                <h2>Building Order</h2>
+                <h2>Construction Requests</h2>
                 <div id="buildingOrders"></div>
             </div>
 
             <!-- Upgrades -->
             <div class="card">
-                <h2>Upgrades & Research</h2>
+                <h2>Research Requests</h2>
                 <div id="playerUpgrades"></div>
             </div>
 
@@ -781,7 +782,7 @@
 
             <!-- Unit Production -->
             <div class="card">
-                <h2>Unit Production</h2>
+                <h2>Training Requests</h2>
                 <div id="unitProduction"></div>
             </div>
 
@@ -1481,7 +1482,7 @@
         function groupByTeam(playerSlots, playerTeams) {
             const teams = {};
             playerSlots.forEach(slot => {
-                const team = playerTeams?.[slot] || playerTeams?.[parseInt(slot)] || 0;
+                const team = playerTeams?.[slot] ?? playerTeams?.[parseInt(slot)] ?? -1;
                 if (!teams[team]) teams[team] = [];
                 teams[team].push(slot);
             });
@@ -1559,6 +1560,8 @@
         }
 
         function displayReplay(data) {
+            const analysisNote = document.getElementById('analysisNote');
+            analysisNote.textContent = data.analysis_note || 'Legacy heuristic decoding. This build has not been validated against the recovered schema.';
             // Overview
             document.getElementById('mapName').textContent = data.map || 'Unknown';
             document.getElementById('duration').textContent = formatDuration(data.duration_seconds);
@@ -1616,7 +1619,7 @@
                         <div class="player-slot">Slot ${slot}</div>
                         <div class="player-name" style="color: ${color}">${escapeHtml(name)}</div>
                         <div class="player-faction ${factionClass}">${faction}</div>
-                        <div class="player-apm"><strong>${apm}</strong> APM (${stats.actions.toLocaleString()} actions)</div>
+                        <div class="player-apm"><strong>${apm}</strong> ${data.parser_mode === 'verified-107842' ? 'commands/min' : 'APM'} (${stats.actions.toLocaleString()} actions)</div>
                         ${resultHtml}
                     `;
                     playerList.appendChild(div);
@@ -1754,7 +1757,7 @@
                 teamDiv.className = 'team-group';
 
                 // Team header (only show if we have team info)
-                if (team > 0) {
+                if (team >= 0) {
                     const teamHeader = document.createElement('div');
                     teamHeader.className = 'team-header';
                     teamHeader.style.color = teamColors[team] || '#d4a574';
@@ -1775,7 +1778,7 @@
                     header.className = 'player-buildings-header';
                     header.innerHTML = `
                         <span class="player-buildings-name" style="color: ${color}">${escapeHtml(playerName)}${faction ? ` <span style="opacity: 0.7">(${faction})</span>` : ''}</span>
-                        <span class="player-buildings-count">${buildings.length} buildings</span>
+                        <span class="player-buildings-count">${buildings.length} requests</span>
                     `;
                     playerDiv.appendChild(header);
 
@@ -1829,7 +1832,7 @@
                 const teamDiv = document.createElement('div');
                 teamDiv.className = 'team-group';
 
-                if (team > 0) {
+                if (team >= 0) {
                     const teamHeader = document.createElement('div');
                     teamHeader.className = 'team-header';
                     teamHeader.style.color = teamColors[team] || '#d4a574';
@@ -1880,7 +1883,7 @@
             container.innerHTML = '';
 
             if (!stormgateRewards || Object.keys(stormgateRewards).length === 0) {
-                container.innerHTML = '<div style="color: #666;">No Stormgate rewards chosen</div>';
+                container.innerHTML = '<div style="color: #666;">No resolved Stormgate reward requests</div>';
                 return;
             }
 
@@ -1891,7 +1894,7 @@
                 const teamDiv = document.createElement('div');
                 teamDiv.className = 'team-group';
 
-                if (team > 0) {
+                if (team >= 0) {
                     const teamHeader = document.createElement('div');
                     teamHeader.className = 'team-header';
                     teamHeader.style.color = teamColors[team] || '#d4a574';
@@ -1942,7 +1945,7 @@
             container.innerHTML = '';
 
             if (!summary || Object.keys(summary).length === 0) {
-                container.innerHTML = '<div style="color: #666;">No unit production detected</div>';
+                container.innerHTML = '<div style="color: #666;">No resolved training requests</div>';
                 return;
             }
 
@@ -1964,7 +1967,7 @@
                 header.className = 'player-buildings-header';
                 header.innerHTML = `
                     <span class="player-buildings-name" style="color: ${color}">${escapeHtml(playerName)}</span>
-                    <span class="player-buildings-count">${totalUnits} unit${totalUnits !== 1 ? 's' : ''}</span>
+                    <span class="player-buildings-count">${totalUnits} request${totalUnits !== 1 ? 's' : ''}</span>
                 `;
                 playerDiv.appendChild(header);
 
@@ -2017,8 +2020,11 @@
                 div.className = 'timeline-entry';
                 const time = action.frame ? formatTime(action.frame / 1024) : '00:00';
                 const player = action.player || `P${action.player_id || '?'}`;
-                let details = action.type || '';
-                if (action.ability_name) details += ` [${action.ability_name}]`;
+                let details = action.description || action.type || '';
+                if (!action.description && action.ability_name) details += ` [${action.ability_name}]`;
+                if (action.queued) details += ' · queued';
+                if (action.x !== undefined) details += ` · (${action.x.toFixed(2)}, ${action.y.toFixed(2)})`;
+                if (action.selection_entity_ids?.length) details += ` · selection ${action.selection_entity_ids.join(', ')}`;
                 if (action.target_type_name) details += ` -> ${action.target_type_name}`;
                 div.innerHTML = `
                     <span class="timeline-time">[${time}]</span>
@@ -2140,7 +2146,7 @@
                         params.forEach(p => {
                             result += `<div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${p.color};"></span>
-                                <span>${p.seriesName}: <strong>${Math.round(p.value)} APM</strong></span>
+                                <span>${p.seriesName}: <strong>${Math.round(p.value)} commands/min</strong></span>
                             </div>`;
                         });
                         return result;
@@ -2175,7 +2181,7 @@
                 },
                 yAxis: {
                     type: 'value',
-                    name: 'APM',
+                    name: 'Commands/min',
                     nameTextStyle: {
                         color: '#8b7355'
                     },
