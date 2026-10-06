@@ -2,4 +2,5 @@
 * text=auto
 assets/protocols/*.json linguist-generated=true
 assets/protocols/*.pb binary
+assets/protocols/*.json.gz binary linguist-generated=true
 docs/ACTIONS.md linguist-generated=true

@@ -9,7 +9,8 @@ implementation remains in the local investigation workspace.
 
 1. `0x145432ad0` receives a game-action record. It returns for one caller-supplied
    condition, skips net-action tag 2 (heartbeat), and consults message options
-   through `0x14543dbe0`. The first caller condition is not established here.
+   through `0x14543dbe0`. The option is confirmed as `ephemeralNetAction` (51239)
+   from native data at `0x1491399e8`; the first caller condition's name is unknown.
 2. `0x145476ea0` passes the record to `0x146c4b5a0`. This obtains serialized size,
    rejects sizes at or above 2 GiB, writes an unsigned varint length, and serializes.
 3. `0x14544d400` initializes magic, version 2, header length 20, changelist,
@@ -33,10 +34,13 @@ UTF-8, and empty messages. Unknowns are checked in both envelope and action.
 
 ## Map and ability provenance
 
-The bundled map catalog matches runtime hash
+The reference map catalog matches runtime hash
 `1A899140C751370B2E7EE7B580671CDB1D5A4D22`, from module
 `AshenBoneyard_245eeecf8bdc`. Source JSON and WASM SHA-256 hashes are recorded in
-the catalog. Semantic decoding requires an exact footer hash match.
+the catalog. The corpus extends this to 98 exact runtimes for build 107842.
+Semantic decoding requires an exact footer hash match. Shared-handler descriptions
+are traced in the reference module; matching selector sets across all modules do
+not establish identical runtime outcomes.
 
 | Evidence | Finding |
 |---|---|
@@ -54,7 +58,10 @@ the catalog. Semantic decoding requires an exact footer hash match.
 | Unit handler → production ability → `ProductionQueueTask::on_action` | Verb 3703223256 passes data as queue index to `remove_from_queue(index, true)` |
 
 See [ACTIONS.md](ACTIONS.md) for the complete descriptor inventory and all explicit
-dispatcher comparisons, including branches whose names remain unresolved.
+dispatcher comparisons. The exported `on_action` adds selector 4279446118, making
+66 selectors total. Every branch has a behavioral description; 57 have retained
+original names. See [RECOVERY_STATUS.md](RECOVERY_STATUS.md) for the C/WAT audit,
+native participant bridge, per-map catalogs, and explicit limits.
 
 ## Validation and remaining limits
 
@@ -85,3 +92,5 @@ python -m pytest -q
 The catalog builder never reads replays. Tests include synthetic binary fixtures
 for every network variant and semantic regression cases, so CI does not need
 personal match files.
+The complete corpus and source-audit reproduction commands are in
+[RECOVERY_STATUS.md](RECOVERY_STATUS.md#reproduction).

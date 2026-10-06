@@ -32,7 +32,9 @@ valid actions. Repeated entity IDs can be packed; they are not strings or guesse
 nested protobuf messages. Optional presence is retained, including explicit false.
 
 [The action reference](docs/ACTIONS.md) lists all 43 network variants, seven
-participant variants, nested fields, and 65 explicit matching-map comparisons.
+participant variants, nested fields, and 66 explicit map-entry selectors checked
+across 98 recovered modules. The native bridge maps queued/smart flags to four
+command variants and packs the six bot options into bits 0 through 5.
 
 ## Orders
 
@@ -51,7 +53,7 @@ UI data is not an ability, and quick macros need not use the current selection.
 
 Coordinates are signed int32 using the SDK Distance scale of **16,384**.
 Raw values and presence are preserved. Coordinate conversion and ability labels
-are applied only to the exact bundled map-runtime hash.
+are applied only to an exact bundled map-runtime hash (98 recovered runtimes).
 
 ## Footer
 
@@ -81,3 +83,5 @@ require simulation. Router ticks are retained; display timing follows the legacy
 1024-ticks-per-second convention and is not the SDK's 64 Hz simulation step index.
 
 See [the code investigation](docs/REVERSE_ENGINEERING.md) for evidence and limits.
+The [source recovery audit](docs/RECOVERY_STATUS.md) accounts for every explicit
+entry selector and documents information that needs runtime state or more evidence.

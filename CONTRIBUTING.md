@@ -17,12 +17,13 @@ Use `python web/server.py` for the local dashboard.
 
 ## Extending coverage
 
-The current derived catalog covers the matching Ashen Boneyard runtime for build
-107842. Rebuild it using `scripts/build_action_catalog.py` and locally extracted
+The current corpus covers 98 exact map runtimes for build 107842, with Ashen
+Boneyard as its reference catalog. Follow the reproducible extraction commands in
+[the recovery audit](docs/RECOVERY_STATUS.md#reproduction) using locally extracted
 game content. Another map/build needs its own provenance and compatibility tests.
 The existing decoder deliberately refuses unsupported builds rather than silently
 applying the wrong schema. Older builds continue through the legacy parser.
 
-Important remaining work: unresolved dispatcher names, UI string-ID resolution,
+Remaining work includes nine original selector spellings, UI string-ID resolution,
 precise recording/simulation time alignment, and runtime observations of order
 success, movement, damage, and entity lifetime. Keep these gaps explicit.

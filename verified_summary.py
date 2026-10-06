@@ -64,6 +64,8 @@ def dashboard_summary(decoded, filepath):
                                  'Celestial': ('Arcship', 'Celestial_', 'CreationChamber')}.items():
             if any(marker in name for marker in markers):
                 factions[pid] = faction
+        if not e.get('abilityExecutionRequested', False):
+            continue
         command = ability.get('command', {})
         request = {'frame': ticks, 'time': time, 'status': 'requested',
                    'ability_id': ability['archetypeId'], 'command_index': ability['commandIndex']}

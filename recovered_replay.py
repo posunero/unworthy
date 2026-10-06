@@ -1,10 +1,11 @@
-"""Build-specific, schema-based replay export. Requires the 'recovered' extra.
+"""Build-specific, schema-based replay export and source-traced action labels.
 
 Both the recording envelope and actions use recovered build-107842 descriptors.
 """
 import argparse
 from collections import Counter
 import hashlib
+import gzip
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -16,6 +17,9 @@ from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 SCHEMA = Path(__file__).parent / 'assets/protocols/ls_types-107842.pb'
 ROUTER_SCHEMA = SCHEMA.with_name('cf_ls_router-107842.pb')
 CATALOG = SCHEMA.with_name('ashen-boneyard-107842.json')
+SEMANTICS = SCHEMA.with_name('action-semantics-107842.json')
+CATALOG_CORPUS = SCHEMA.with_name('map-catalogs-107842.json.gz')
+BOT_OPTIONS = ('currentlyActive','buildWorkers','maintainSupply','buildStructures','buildArmy','buildExpansion')
 
 
 @lru_cache(maxsize=1)
@@ -95,6 +99,9 @@ class SelectionTracker:
     def apply(self, participant, kind, payload):
         if kind in ('setControlGroup', 'modifyControlGroup'):
             key = (participant, payload.get('controlGroupIndex', 0))
+            if key[1] > 10:
+                return {'controlGroupIndexAccepted': False,
+                        'controlGroupRejection': 'Native participant dispatcher rejects indices above 10 (0x1800c9110)'}
             previous, known = self.control_groups.get(key, ([], False))
             if kind == 'setControlGroup':
                 entities, known = list(payload['entityId']), True
@@ -103,7 +110,8 @@ class SelectionTracker:
                 entities += [entity for entity in payload['entityId'] if entity not in entities]
             self.control_groups[key] = (entities, known)
             return {'controlGroupEntityIds': list(entities),
-                    'controlGroupEstablishedByRecordedSet': known}
+                    'controlGroupEstablishedByRecordedSet': known,
+                    'controlGroupIndexAccepted': True}
         key = (participant, payload.get('selectionIndex', 0))
         if kind == 'setSelection':
             self.selections[key] = (list(payload['entityId']), True)
@@ -124,7 +132,111 @@ class SelectionTracker:
 
 @lru_cache(maxsize=1)
 def load_catalog():
-    return json.loads(CATALOG.read_text(encoding='utf-8'))
+    catalog = json.loads(CATALOG.read_text(encoding='utf-8'))
+    catalog['mapVerbs'] = json.loads(SEMANTICS.read_text(encoding='utf-8'))
+    catalog['semanticsReferenceModule'] = 'AshenBoneyard_245eeecf8bdc'
+    return catalog
+
+
+@lru_cache(maxsize=1)
+def load_catalog_corpus():
+    corpus = json.loads(gzip.decompress(CATALOG_CORPUS.read_bytes()))
+    canonical = json.dumps(load_catalog()['archetypes'],sort_keys=True,separators=(',',':')).encode()
+    if corpus['baseArchetypesSha256'] != hashlib.sha256(canonical).hexdigest():
+        raise ValueError('Catalog corpus does not match its reference catalog')
+    return corpus
+
+
+@lru_cache(maxsize=4)
+def catalog_for_hash(runtime_hash):
+    reference = load_catalog()
+    if runtime_hash == reference['mapRuntimeHash']:
+        return reference
+    entry = load_catalog_corpus()['maps'].get(runtime_hash)
+    if entry is None:
+        return None
+    archetypes = dict(reference['archetypes'])
+    for key in entry['removed']:
+        archetypes.pop(key, None)
+    archetypes.update(entry['overrides'])
+    if len(archetypes) != entry['archetypeCount']:
+        raise ValueError('Catalog corpus archetype count mismatch')
+    result = {k:v for k,v in reference.items() if k not in ('archetypes','map','mapRuntimeHash')}
+    result.update({k:v for k,v in entry.items() if k not in ('overrides','removed')})
+    result['archetypes'] = archetypes
+    return result
+
+
+def map_payload(payload, mode):
+    """Expose source-established field roles without manufacturing missing state."""
+    fields = {
+        'ui': {'kind':'commandStringId','data':'dataStringId','subject':'player'},
+        'widget': {'subject':'widgetEntityId','kind':'commandStringId','data':'dataStringId'},
+        'entity_vm': {'subject':'entityId','kind':'commandStringId','data':'numericData'},
+        'chat_notification': {'data':'textStringId'},
+        'sequence_custom': {'subject':'sequencePlayerId','kind':'sequenceArchetypeId','data':'eventStringId'},
+        'sequence': {'subject':'sequencePlayerId','kind':'sequenceArchetypeId'},
+        'transmission': {'subject':'transmissionPlayerId','kind':'transmissionArchetypeId'},
+        'cancel': {'subject':'entityId','data':'queueIndex'},
+        'cargo': {'subject':'carrierEntityId','data':'cargoEntityId'},
+        'item': {'kind':'itemEntityId','data':'orderData','subject':'targetEntityId'},
+        'ability': {'data':'orderData','subject':'targetEntityId','kind':'targetKind'},
+        'smart': {'data':'orderData','subject':'targetEntityId','kind':'targetKind'},
+        'single_smart': {'subject':'entityId'},
+        'spawn': {'kind':'entityKind','subject':'spawnSubject','data':'rawAngle'},
+        'participant_subject': {'subject':'participantEntityId'},
+        'participant_index': {'data':'participantIndex'},
+        'player': {'data':'playerEntityId'},
+        'subject': {'subject':'subject'},
+        'ping': {'subject':'targetEntityId','kind':'pingKind','data':'data'},
+        'bot_options': {'data':'rawOptions'},
+    }
+    result = {label:payload[key] for key,label in fields.get(mode,{}).items() if key in payload}
+    if mode == 'single_smart':
+        result['queued'] = bool(payload.get('data', 0))
+    if mode == 'bot_options':
+        result['enabled'] = bool(payload.get('data', 0) & 1)
+        result['options'] = {name:bool(payload.get('data',0) & (1<<i)) for i,name in enumerate(BOT_OPTIONS)}
+        result['uninterpretedOptionBits'] = payload.get('data',0) & ~63
+    if mode == 'camera':
+        def signed(value):
+            value &= 0xffffffff
+            return value if value < 2**31 else value-2**32
+        for key,label in [('subject','headingDegrees'),('kind','pitchDegrees')]:
+            if key in payload:
+                numerator = signed(payload[key]) * 2**28
+                q = (abs(numerator) // 45) * (-1 if numerator < 0 else 1)
+                result[label] = signed(q) * 45 / 2**28
+        if 'data' in payload:
+            result['zoomWorld'] = signed(payload['data'] << 14) / 16384
+    return result
+
+
+def native_participant_dispatch(kind, payload):
+    """Reconstruct the map-call arguments made by native 0x1800c9110.
+
+This describes a dispatch request after native validity gates, not proof those
+gates passed. isAI is preserved in the record but is not read in this bridge.
+"""
+    if kind in ('setSelection','modifySelection'):
+        return {'verb':580466764,'operation':'selection update then participant_selection_changed',
+                'selectionIndex':payload.get('selectionIndex',0)}
+    if kind == 'selectionOrder':
+        queued,smart=bool(payload.get('queued',False)),bool(payload.get('smart',False))
+        verb=(307192056 if queued else 2626128676) if smart else (3322138414 if queued else 2472102578)
+        return {'verb':verb,'data':payload['orderType'],'subject':payload['targetEntityId'],
+                'kind':payload['targetEntityKind'],'position':payload.get('position',{'x':0,'y':0}),
+                'selectionIndex':payload.get('selectionIndex',0),
+                'isAIUsedByThisBridge':False}
+    if kind == 'mapAction':
+        return {key:payload.get(key,0) for key in ('verb','data','subject','kind','x','y','selectionIndex')}
+    if kind == 'setBotOptions':
+        return {'verb':3926104316,'data':sum((1<<i) for i,name in enumerate(BOT_OPTIONS) if payload.get(name,False))}
+    if kind in ('setControlGroup','modifyControlGroup'):
+        return {'operation':kind,'index':payload.get('controlGroupIndex',0),
+                'staticIndexAccepted':payload.get('controlGroupIndex',0)<=10,
+                'verb':None}
+    return None
 
 
 def resolve_order(order, catalog):
@@ -134,7 +246,8 @@ def resolve_order(order, catalog):
         entry = catalog['archetypes'].get(key)
         if entry is not None:
             result = {'archetypeId': int(key), 'name': entry['id'],
-                      'baseType': entry['__base_type'], 'commandIndex': index}
+                      'baseType': entry['__base_type'], 'commandIndex': index,
+                      'isAbilityArchetype': 'Ability' in entry['__base_type']}
             commands = entry.get('commands', [])
             if index < len(commands):
                 result['command'] = commands[index]
@@ -163,6 +276,8 @@ def annotate(event, catalog):
         event['queued'] = payload.get('queued', False)
         code = payload['orderType']
         position = payload.get('position')
+        smart = payload.get('smart', False)
+        event['abilityExecutionRequested'] = True
     else:
         code = payload.get('data', 0)
         verb = catalog['mapVerbs'].get(str(payload['verb'])) if catalog else None
@@ -172,16 +287,25 @@ def annotate(event, catalog):
         event['category'] = (verb or {}).get('category', 'unresolved_map_action')
         if verb:
             event['mapVerbEvidence'] = verb
+            event['interpretationStatus'] = verb['status']
+            event['runtimeRequirements'] = verb.get('requires', [])
+            event['interpretedPayload'] = map_payload(payload, verb.get('payloadMode'))
+        mode = (verb or {}).get('payloadMode')
+        event['abilityExecutionRequested'] = payload['verb'] in (
+            2472102578,3322138414,1432744753,2626128676,307192056,
+            815962355,81781465,1304751467,1756538168,2407219556,3534171667)
+        smart = mode in ('smart', 'single_smart')
+        event['queued'] = payload['verb'] in (3322138414,307192056,1756538168) or (mode == 'single_smart' and bool(payload.get('data',0)))
         position = {'x': payload['x'], 'y': payload['y']} if 'x' in payload and 'y' in payload else None
         if payload['verb'] == 3703223256 and catalog:
             event['description'] = f"Cancel production queue item {payload.get('data', 0)} on entity {payload.get('subject', 0)}"
-        if payload['verb'] not in (81781465, 1304751467, 2402589206, 3345376816, 559384890, 2605351170):
+        if mode not in ('ability','smart','item'):
             code = None  # data in UI/chat/cancel messages is NOT an ability ID
     if position and catalog:
         event['positionWorld'] = {axis: value / catalog['coordinateScale'] for axis, value in position.items()}
     if code is not None and catalog:
         resolved = resolve_order(code, catalog)
-        event['orderResolved'] = resolved is not None or (code == 0 and (payload.get('smart') or command == 'mapAction' and payload['verb'] == 1304751467))
+        event['orderResolved'] = bool(resolved and resolved['isAbilityArchetype']) or (code == 0 and smart)
         if resolved:
             event['abilityCommand'] = resolved
             target = resolved.get('command', {}).get('unit') or resolved.get('command', {}).get('upgrade')
@@ -220,8 +344,7 @@ def export_recovered(path):
     Record, Footer, NetAction = message_classes()
     footer = Footer()
     footer.ParseFromString(footer_bytes)
-    candidate = load_catalog()
-    catalog = candidate if footer.mapRuntimeHash == candidate['mapRuntimeHash'] else None
+    catalog = catalog_for_hash(footer.mapRuntimeHash)
     tracker, counts, events = SelectionTracker(), Counter(), []
     pos = 0
     while pos < len(raw_data):
@@ -249,6 +372,7 @@ def export_recovered(path):
             event['commandType'] = command
             if command:
                 payload = as_dict(getattr(participant, command))
+                event['nativeDispatch'] = native_participant_dispatch(command,payload)
                 event.update(tracker.apply(participant.participantId, command, payload))
         annotate(event, catalog)
         events.append(event)
@@ -261,6 +385,8 @@ def export_recovered(path):
             'schemaSha256': hashlib.sha256(SCHEMA.read_bytes()).hexdigest(),
             'routerSchemaSha256': hashlib.sha256(ROUTER_SCHEMA.read_bytes()).hexdigest(),
             'catalogMatched': catalog is not None,
+            'catalogSourceMap': catalog['map'] if catalog else None,
+            'semanticsReferenceModule': catalog['semanticsReferenceModule'] if catalog else None,
             'footer': as_dict(footer), 'footerRawHex': footer_bytes.hex(),
             'footerHasUnknownFields': has_unknown_fields(footer),
             'coverage': {'records': len(events), 'decompressedBytesConsumed': pos,

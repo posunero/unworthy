@@ -5,8 +5,9 @@ control groups, targeting transitions, chat, and system events.
 
 **Build 107842 now uses recovered game schemas.** The normal CLI and local dashboard
 use the verified decoder automatically for that build. Exact-map ability semantics
-are available for the bundled Ashen Boneyard runtime; other maps retain named
-protocol fields and raw IDs. Older builds use the legacy heuristic parser.
+are available for 98 recovered map runtimes, selected by exact runtime hash.
+Unknown runtimes retain named protocol fields and raw IDs. Older builds use the
+legacy heuristic parser.
 
 ## Quick start
 
@@ -49,7 +50,8 @@ UI, targeting, chat, selections, and system traffic.
 | Container, gzip integrity, footer boundaries | Verified v2 / build 107842 |
 | Network action variants | All 43 decoded from recovered descriptors |
 | Participant action variants | All 7, including packed selection/control-group IDs |
-| Map dispatch surface | 65 explicit comparisons inventoried; unresolved names remain numeric |
+| Map dispatch surface | All 66 explicit entry selectors across 98 modules, with source-traced descriptions |
+| Original selector names | 57 retained names; nine use documented behavioral descriptions |
 | Ability commands | Hash + command index, resolved against the exact matching map catalog |
 | Coordinates | Signed int32 / 16,384 for the matched catalog |
 | Selection tracking | Recorded changes per participant and selection index |
@@ -59,7 +61,7 @@ UI, targeting, chat, selections, and system traffic.
 
 A build/train/research event is a **request**, not proof of completion. Smart
 orders require world state to determine their eventual behavior. UI string hashes
-and some unused map-handler meanings remain unresolved. Zero unknown wire fields
+remain numeric without a corroborating dictionary. Zero unknown wire fields
 is a coverage check, not a claim of perfect gameplay reconstruction.
 
 ## Why this decoding is different
@@ -71,6 +73,7 @@ presence, validates complete records, and gates gameplay names on map runtime ha
 
 - [Replay format](SGREPLAY_FORMAT.md)
 - [All protocol actions and map dispatcher entries](docs/ACTIONS.md)
+- [Source recovery coverage and documented limits](docs/RECOVERY_STATUS.md)
 - [Native recording path, evidence, and remaining gaps](docs/REVERSE_ENGINEERING.md)
 - [Contribution and validation guide](CONTRIBUTING.md)
 
@@ -92,8 +95,9 @@ replays are ignored by Git; optional local replay checks skip when absent.
 | `recovered_replay.py` | Strict container and descriptor decoding; readable timeline |
 | `verified_summary.py` | Verified records adapted for the existing dashboard |
 | `parse_sgreplay.py` | Shared CLI and legacy compatibility |
-| `assets/protocols/` | Recovered descriptors and versioned map catalog |
-| `scripts/build_action_catalog.py` | Reproducible catalog extraction |
+| `assets/protocols/` | Recovered descriptors, 98 map catalogs, and source audit |
+| `scripts/recover_action_surface.py` | Reproducible entrypoint and handler inventory |
+| `scripts/build_catalog_corpus.py` | Exact-runtime catalog extraction |
 | `web/` | Local dashboard |
 | `tests/` | Public synthetic fixtures and regression tests |
 

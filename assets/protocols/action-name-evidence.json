@@ -1,0 +1,610 @@
+{
+  "2258626040": [
+    {
+      "name": "activate_player",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2011088,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "603245548": [
+    {
+      "name": "check_win_condition",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2011128,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2847442609": [
+    {
+      "name": "start_phase_staging",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2011152,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2954092714": [
+    {
+      "name": "start_phase_in_game",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2011176,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3271238072": [
+    {
+      "name": "on_init_reserved",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2017040,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3264454613": [
+    {
+      "name": "participant_created",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2017208,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3924980620": [
+    {
+      "name": "on_init_ai_staging",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2017232,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "536998780": [
+    {
+      "name": "on_init_client_requested_pre_staging",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2017400,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1070162333": [
+    {
+      "name": "on_init_client_requested_post_staging",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2017440,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2792379770": [
+    {
+      "name": "participant_destroyed",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2018000,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2918277820": [
+    {
+      "name": "on_fulfill_reservation",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2018736,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3741475005": [
+    {
+      "name": "on_reservation_timeout",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2018912,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1532564498": [
+    {
+      "name": "on_disconnected_forever",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2019088,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3556953337": [
+    {
+      "name": "on_rejoined",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2019256,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2452358077": [
+    {
+      "name": "on_disconnected_with_rejoin",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2019272,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1365994611": [
+    {
+      "name": "on_deploy_staged_human",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2020304,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1911537387": [
+    {
+      "name": "create_player_entity",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2026728,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2758349417": [
+    {
+      "name": "begin_play",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2026976,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2966149146": [
+    {
+      "name": "spawn_force_location",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2026992,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1037210847": [
+    {
+      "name": "post_task_update",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2085832,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "354004291": [
+    {
+      "name": "on_forfeit_requested",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2121776,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1755832395": [
+    {
+      "name": "on_unpause_game",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2123408,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "4096938868": [
+    {
+      "name": "on_pause_game",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2123424,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "975326616": [
+    {
+      "name": "spawn",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2129148,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3322138414": [
+    {
+      "name": "command_queued",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2129160,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3926104316": [
+    {
+      "name": "set_bot_options",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2129176,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "307192056": [
+    {
+      "name": "smart_command_queued",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2129192,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2626128676": [
+    {
+      "name": "smart_command",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2129216,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "580466764": [
+    {
+      "name": "participant_selection_changed",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2129232,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2472102578": [
+    {
+      "name": "command",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2129264,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    },
+    {
+      "name": "command",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 130862344,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    },
+    {
+      "name": "command",
+      "source": "player.h",
+      "line": 463,
+      "basis": "shipped_header_literal_hash_match"
+    },
+    {
+      "name": "command",
+      "source": "player.h",
+      "line": 469,
+      "basis": "shipped_header_literal_hash_match"
+    },
+    {
+      "name": "command",
+      "source": "player.h",
+      "line": 476,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "117852904": [
+    {
+      "name": "editor_unit_teardown",
+      "source": "snowplay_dll_UnrealShipping.dll",
+      "sha256": "9c969b94efc2ddd5900ff4dd4ef73dbb9974592a32bec49f1219c182fa5248fd",
+      "fileOffset": 2130080,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "215225644": [
+    {
+      "name": "unload_single_cargo",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 134859936,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3717677309": [
+    {
+      "name": "ui_to_script",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135073072,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1383849896": [
+    {
+      "name": "skip_cinematic",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135075408,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1304751467": [
+    {
+      "name": "quick_macro_smart_command",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135276352,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "81781465": [
+    {
+      "name": "quick_macro_command",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135276384,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "815962355": [
+    {
+      "name": "selectionless_move_order",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135276408,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3703223256": [
+    {
+      "name": "remove_from_production_queue",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135276440,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3021948337": [
+    {
+      "name": "player_ping",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135276472,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "429833619": [
+    {
+      "name": "player_chat_message",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135276488,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3534171667": [
+    {
+      "name": "acquire",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135286760,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "3345376816": [
+    {
+      "name": "targeting_inactive",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135303344,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    },
+    {
+      "name": "targeting_inactive",
+      "source": "trigger_editor/events/targeting_state_changed_event.h",
+      "line": 10,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "2402589206": [
+    {
+      "name": "targeting_started",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135303368,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    },
+    {
+      "name": "targeting_started",
+      "source": "trigger_editor/events/targeting_state_changed_event.h",
+      "line": 11,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "559384890": [
+    {
+      "name": "targeting_completed",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135303392,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    },
+    {
+      "name": "targeting_completed",
+      "source": "trigger_editor/events/targeting_state_changed_event.h",
+      "line": 12,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "2605351170": [
+    {
+      "name": "targeting_canceled",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135303416,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    },
+    {
+      "name": "targeting_canceled",
+      "source": "trigger_editor/events/targeting_state_changed_event.h",
+      "line": 13,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "1102066046": [
+    {
+      "name": "autocast_toggle_on",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135383672,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1346991488": [
+    {
+      "name": "autocast_toggle_off",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135383696,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2474515278": [
+    {
+      "name": "quickmacro_autocast_toggle_on",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135383792,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1735479664": [
+    {
+      "name": "quickmacro_autocast_toggle_off",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135383896,
+      "encoding": "ascii",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1756538168": [
+    {
+      "name": "command_drop_item_queued",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135303104,
+      "encoding": "utf-16le",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "2407219556": [
+    {
+      "name": "command_drop_item",
+      "source": "Stormgate-Win64-Shipping.exe",
+      "sha256": "a41bb5900fbdcdf93822f2052260ce4a3f20c36f0e4f538558fe8be67d3b7a64",
+      "fileOffset": 135303160,
+      "encoding": "utf-16le",
+      "basis": "retained_binary_string_hash_match"
+    }
+  ],
+  "1015585459": [
+    {
+      "name": "sequence_play",
+      "source": "trigger_editor/events/sequence_playback_changed.h",
+      "line": 8,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "2863944085": [
+    {
+      "name": "sequence_stop",
+      "source": "trigger_editor/events/sequence_playback_changed.h",
+      "line": 9,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "3015766174": [
+    {
+      "name": "sequence_queue_empty",
+      "source": "trigger_editor/events/sequence_playback_changed.h",
+      "line": 10,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "2155462304": [
+    {
+      "name": "transmission_play",
+      "source": "trigger_editor/events/transmission_playback_changed.h",
+      "line": 8,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "2431388998": [
+    {
+      "name": "transmission_stop",
+      "source": "trigger_editor/events/transmission_playback_changed.h",
+      "line": 9,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ],
+  "56531927": [
+    {
+      "name": "transmission_queue_empty",
+      "source": "trigger_editor/events/transmission_playback_changed.h",
+      "line": 10,
+      "basis": "shipped_header_literal_hash_match"
+    }
+  ]
+}
